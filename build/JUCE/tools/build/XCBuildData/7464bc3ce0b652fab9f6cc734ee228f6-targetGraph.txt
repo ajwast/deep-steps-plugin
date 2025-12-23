@@ -1,0 +1,7 @@
+Target dependency graph (3 targets)
+ZERO_CHECK in JUCE, no dependencies
+juceaide in JUCE, depends on:
+ZERO_CHECK in JUCE (explicit)
+ALL_BUILD in JUCE, depends on:
+ZERO_CHECK in JUCE (explicit)
+juceaide in JUCE (explicit)
