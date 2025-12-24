@@ -1,7 +1,0 @@
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/CMakeFiles/install.dir
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/CMakeFiles/ALL_BUILD.dir
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/CMakeFiles/ZERO_CHECK.dir
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/modules/CMakeFiles/install.dir
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/extras/Build/CMakeFiles/install.dir
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/extras/Build/juceaide/CMakeFiles/juceaide.dir
-/Users/alexwastnidge/Documents/Xcode Projs/Deep-steps-JUCE-plugin/build/JUCE/tools/extras/Build/juceaide/CMakeFiles/install.dir
