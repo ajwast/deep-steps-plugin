@@ -29,7 +29,6 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
             pitchSliders[i].setRange(36, 96, 1);
             pitchSliders[i].setValue(processorRef.getPitchArray()[i]);
 
-            // FIX: Capture 'this' and index 'i', avoid capturing local references
             pitchSliders[i].onValueChange = [this, i] {
                 processorRef.getPitchArray()[i] = static_cast<int>(pitchSliders[i].getValue());
             };
@@ -37,11 +36,10 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
 
         addAndMakeVisible(importButton); // Ensure this is visible!
         importButton.onClick = [this] {
-            // FIX: Use the class member 'chooser'
-            chooser = std::make_unique<juce::FileChooser> ("Select CSV", juce::File(), "*.csv");
+            csvChooser = std::make_unique<juce::FileChooser> ("Select CSV", juce::File(), "*.csv");
             auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
 
-            chooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
+            csvChooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
                 auto file = fc.getResult();
                 if (file.existsAsFile())
                     processorRef.loadDataFromFile(file);
@@ -65,6 +63,23 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     toleranceLabel.setText("Tolerance", juce::dontSendNotification);
     toleranceLabel.attachToComponent(&toleranceSlider, true);
     
+    addAndMakeVisible(analyzeButton);
+    analyzeButton.onClick = [this] {
+    audioChooser = std::make_unique<juce::FileChooser> (
+        "Select an audio file for analysis...",
+        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+        "*.wav;*.aif;*.mp3"
+    );
+
+    auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+    audioChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+        auto file = fc.getResult();
+        if (file.existsAsFile())
+            processorRef.loadAudioFile(file);
+    });
+    };
+    
     setSize (800, 500);
     startTimerHz(30); // 30 FPS is usually plenty for a sequencer UI
 }
@@ -77,7 +92,7 @@ AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
 //==============================================================================
 void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colours::blue);
+    g.fillAll (juce::Colours::darkblue);
     
     auto area = getLocalBounds();
     auto stepAreaWidth = area.getWidth() - 80;
@@ -88,8 +103,8 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
     const auto& probs = processorRef.getProbabilities();
     float currentTol = processorRef.tolerance.load();
 
-    // Get the current rhythm pattern from the processor
-    const auto& rhythm = processorRef.getRhythmArray();
+//    // Get the current rhythm pattern from the processor
+//    const auto& rhythm = processorRef.getRhythmArray();
 
     for (int i = 0; i < 16; ++i)
         {
@@ -133,6 +148,8 @@ void AudioPluginAudioProcessorEditor::resized()
     {
         pitchSliders[i].setBounds(sliderArea.removeFromLeft(stepWidth).reduced(2, 0));
     }
+    
+    analyzeButton.setBounds(10, 10, 150, 30);
 }
 
 void AudioPluginAudioProcessorEditor::timerCallback()

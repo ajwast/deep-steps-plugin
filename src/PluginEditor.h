@@ -22,12 +22,15 @@ private:
     double currentStep;
 
     juce::TextButton generateButton { "Generate Rhythm" };
-    std::array<juce::Slider, 16> pitchSliders;
     juce::TextButton trainButton { "Train Model" };
-    juce::TextButton importButton { "Import Data" };
-    std::unique_ptr<juce::FileChooser> chooser;
+    juce::TextButton importButton { "Import CSV" };
+    juce::TextButton analyzeButton { "Analyze Loop" };
+    std::unique_ptr<juce::FileChooser> csvChooser;   // Was 'chooser'
+    std::unique_ptr<juce::FileChooser> audioChooser;
     
-    juce::Slider toleranceSlider; // Added
-    juce::Label toleranceLabel;   // Added
+    std::array<juce::Slider, 16> pitchSliders;
+    juce::Slider toleranceSlider;
+    juce::Label toleranceLabel;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessorEditor)
 };

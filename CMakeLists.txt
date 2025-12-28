@@ -59,6 +59,8 @@ target_compile_definitions(DeepSteps
 target_link_libraries(DeepSteps
     PRIVATE
         juce::juce_audio_utils
+        juce::juce_dsp
+        juce::juce_audio_formats
         ${TORCH_LIBRARIES}
     PUBLIC
         juce::juce_recommended_config_flags

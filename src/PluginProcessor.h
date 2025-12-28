@@ -1,7 +1,10 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <torch/torch.h>
+#include <regex>
 #include "Autoencoder.h"
 //==============================================================================
 class AudioPluginAudioProcessor : public juce::AudioProcessor, public juce::Thread
@@ -64,12 +67,22 @@ public:
     // Functions for the UI to call
     void loadDataFromFile(const juce::File& file);
     void startTrainingSession(int epochs, double lr);
+    
+    // --- Audio Analysis Functionality ---
+    void loadAudioFile (const juce::File& file);
+    void detectOnsets();
+    void findTempoFromAudio (const juce::File& file);
+    void segmentAudioFile();
+
+    // Accessors for UI or Training
+    int getDetectedBpm() const { return detectedBpm; }
+    const std::vector<std::vector<int>>& getDetectedPatterns() const { return trainingPatterns; }
 
 private:
     // Audio and Timing member variables
     double sampleRate = 44100.0;
     double currentPosition;
-    double bpm = 120.0;
+    double dawBpm = 120.0;
     int64_t blockStartSample = 0;
     double currentSampleRate = 44100.0;
     int intStep = 0;
@@ -93,7 +106,19 @@ private:
     void makeMIDINote(int noteNumber, int sampleOffset);
     void processPendingNotes(juce::MidiBuffer& midiBuffer, int64_t blockStartSample, int numSamples);
     
+    // Audio Analysis Members
+    juce::AudioFormatManager formatManager;
+    juce::AudioSampleBuffer loadedBuffer;
+    std::vector<double> onsets;
+    std::vector<int> steps;     // Flattened binary array
+    std::vector<float> shifts;
+    std::vector<std::vector<int>> trainingPatterns; // List of 16-step bars
 
+    int detectedBpm = 120;
+    int barLengthInSamples = 0;
+    int sixteenthNoteSamples = 0;
+    int numBars = 0;
+    int numSixteenths = 0;
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessor)
