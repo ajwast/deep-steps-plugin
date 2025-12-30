@@ -249,28 +249,24 @@ void AudioPluginAudioProcessor::loadAudioFile (const juce::File& file)
 {
     if (auto* reader = formatManager.createReaderFor(file))
     {
-        currentSampleRate = reader->sampleRate;
+        sampleRate = reader->sampleRate;
         loadedBuffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
         reader->read(&loadedBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
         delete reader;
 
-        detectOnsets();
+        detectOnsets(); // run offline analysis
         findTempoFromAudio(file);
         segmentAudioFile();
 
         // Print results to console as requested
         std::cout << "--- Analysis Results ---" << std::endl;
+        std::cout << "File Length: " << barLengthInSamples << std::endl;
         std::cout << "Detected BPM: " << detectedBpm << std::endl;
-        std::cout << "Bars: " << numBars + 1 << std::endl;
+        std::cout << "Bars: " << numBars << std::endl;
+
+        std::cout << steps.size() << std::endl;
         std::cout << steps << std::endl;
         std::cout << shifts << std::endl;
- //        std::cout << "Patterns Extracted: " << trainingPatterns.size() << std::endl;
-//
-//        for (size_t i = 0; i < trainingPatterns.size(); ++i) {
-//            std::cout << "Bar " << i << ": ";
-//            for (int step : trainingPatterns[i]) std::cout << step;
-//            std::cout << std::endl;
-//        }
     }
 }
 
@@ -317,53 +313,52 @@ void AudioPluginAudioProcessor::detectOnsets()
 
     const int numSamples  = loadedBuffer.getNumSamples();
     const int numChannels = loadedBuffer.getNumChannels();
-    if (numSamples == 0 || numChannels == 0)
+    if (numSamples == 0 || numChannels == 0 || sampleRate <= 0.0)
         return;
 
     // === Parameters ===
-    constexpr int fftOrder   = 10;                  // 2^10 = 1024
-    constexpr int fftSize    = 1 << fftOrder;       // 1024-point FFT
-    constexpr int hopSize    = fftSize / 2;         // 50% overlap
-    constexpr float peakThreshold = 0.15f;          // onset sensitivity
-    constexpr int minGapSamples = 2048 * 2;             // ~50 ms at 44.1kHz
+    constexpr int fftOrder = 10;                 // 1024
+    constexpr int fftSize  = 1 << fftOrder;
+    constexpr int hopSize  = fftSize / 2;
+    constexpr float peakThreshold = 0.15f;
+    constexpr int minGapSamples = 2048 * 2;
 
     juce::dsp::FFT fft (fftOrder);
-    juce::dsp::WindowingFunction<float> window (fftSize, juce::dsp::WindowingFunction<float>::hann);
+    juce::dsp::WindowingFunction<float> window (
+        fftSize, juce::dsp::WindowingFunction<float>::hann);
 
-    std::vector<float> fluxValues;
+    // === Zero-padding at start ===
+    const int padding = fftSize;
+    const int paddedNumSamples = numSamples + padding;
+
+    std::vector<float> monoBuffer (paddedNumSamples, 0.0f);
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        float sum = 0.0f;
+        for (int ch = 0; ch < numChannels; ++ch)
+            sum += loadedBuffer.getSample (ch, i);
+
+        monoBuffer[i + padding] = sum / (float) numChannels;
+    }
+
     std::vector<float> prevMag (fftSize / 2, 0.0f);
+    std::vector<float> fluxValues;
+    std::vector<int>   frameToSample;
 
-    // Temporary buffers
-    std::vector<float> fftInput (fftSize, 0.0f);
-    std::vector<std::complex<float>> fftOutput (fftSize);
+    bool firstFrame = true;
 
     // === Process frames ===
-    for (int start = 0; start + fftSize < numSamples; start += hopSize)
+    for (int start = 0; start + fftSize < paddedNumSamples; start += hopSize)
     {
-        // Mix down to mono
-        for (int i = 0; i < fftSize; ++i)
-        {
-            float sum = 0.0f;
-            for (int ch = 0; ch < numChannels; ++ch)
-                sum += loadedBuffer.getSample (ch, start + i);
-            fftInput[i] = sum / (float) numChannels;
-        }
-
-        // Apply window
-        window.multiplyWithWindowingTable (fftInput.data(), fftSize);
-
-        // FFT needs real + imag interleaved in a float array
         std::vector<float> fftData (2 * fftSize, 0.0f);
-        for (int i = 0; i < fftSize; ++i)
-        {
-            fftData[2 * i]     = fftInput[i];
-            fftData[2 * i + 1] = 0.0f;
-        }
 
-        // Run FFT
+        for (int i = 0; i < fftSize; ++i)
+            fftData[2 * i] = monoBuffer[start + i];
+
+        window.multiplyWithWindowingTable (fftData.data(), fftSize);
         fft.performRealOnlyForwardTransform (fftData.data());
 
-        // Magnitude spectrum
         std::vector<float> mag (fftSize / 2, 0.0f);
         for (int bin = 0; bin < fftSize / 2; ++bin)
         {
@@ -372,7 +367,14 @@ void AudioPluginAudioProcessor::detectOnsets()
             mag[bin] = std::sqrt (re * re + im * im);
         }
 
-        // Spectral flux: sum of positive differences
+        // Prime prevMag with first frame
+        if (firstFrame)
+        {
+            prevMag = mag;
+            firstFrame = false;
+            continue;
+        }
+
         float flux = 0.0f;
         for (int bin = 0; bin < fftSize / 2; ++bin)
         {
@@ -380,31 +382,38 @@ void AudioPluginAudioProcessor::detectOnsets()
             if (diff > 0.0f)
                 flux += diff;
         }
-        fluxValues.push_back (flux);
 
+        fluxValues.push_back (flux);
+        frameToSample.push_back (start - padding);
         prevMag = mag;
     }
 
     if (fluxValues.empty())
         return;
 
-    // === Normalize flux values ===
+    // === Normalize flux ===
     float maxFlux = *std::max_element (fluxValues.begin(), fluxValues.end());
     if (maxFlux > 0.0f)
         for (auto& f : fluxValues)
             f /= maxFlux;
 
-    // === Peak picking with simple threshold ===
+    // === Peak picking (includes first frame) ===
     int lastOnsetSample = -minGapSamples;
-    for (size_t i = 1; i < fluxValues.size() - 1; ++i)
+
+    for (size_t i = 0; i < fluxValues.size(); ++i)
     {
-        float val = fluxValues[i];
-        if (val > peakThreshold && val > fluxValues[i - 1] && val > fluxValues[i + 1])
+        float prev = (i == 0) ? 0.0f : fluxValues[i - 1];
+        float next = (i == fluxValues.size() - 1) ? 0.0f : fluxValues[i + 1];
+
+        if (fluxValues[i] > peakThreshold &&
+            fluxValues[i] > prev &&
+            fluxValues[i] > next)
         {
-            int sampleIndex = (int) (i * hopSize);
+            int sampleIndex = std::max (0, frameToSample[i]);
+
             if (sampleIndex - lastOnsetSample >= minGapSamples)
             {
-                double timeSec = sampleIndex / sampleRate;
+                double timeSec = (double) sampleIndex / sampleRate;
                 onsets.push_back (timeSec);
                 lastOnsetSample = sampleIndex;
             }
@@ -414,76 +423,90 @@ void AudioPluginAudioProcessor::detectOnsets()
 
 void AudioPluginAudioProcessor::segmentAudioFile()
 {
-    const int numSamples  = loadedBuffer.getNumSamples();
-    if (numSamples == 0 || detectedBpm <= 0 || sampleRate <= 0.0)
+    const int numSamples = loadedBuffer.getNumSamples();
+    if (numSamples == 0 ||detectedBpm <= 0 || sampleRate <= 0.0)
         return;
 
-    // Length of one quarter note (beat) in samples
-    double quarterNoteSamples = (60.0 / detectedBpm) * sampleRate;
+    // === Grid sizes ===
+    const double quarterNoteSamples = (60.0 / detectedBpm) * sampleRate;
+    barLengthInSamples = (int) std::round(quarterNoteSamples * 4.0);
+    sixteenthNoteSamples = (int) std::round(quarterNoteSamples / 4.0);
 
-    // One bar (4/4 assumption for now)
-    barLengthInSamples = (int)std::round(quarterNoteSamples * 4.0);
+    numBars = (int) std::ceil((double)numSamples / barLengthInSamples);
+    numSixteenths = (int) std::ceil((double)numSamples / sixteenthNoteSamples);
+    
+//    torch::zeros(numSixteenths) stepsT;
 
-    // One sixteenth note = quarter / 4
-    sixteenthNoteSamples = (int)std::round(quarterNoteSamples / 4.0);
-
-    // How many bars & 16ths fit in the file
-    numBars = (int)std::floor((double)numSamples / barLengthInSamples);
-    numSixteenths = (int)std::floor((double)numSamples / sixteenthNoteSamples);
-
-    // prepare/clear step + shift arrays
     steps.assign(numSixteenths, 0);
     shifts.assign(numSixteenths, 0.0f);
 
     if (onsets.empty())
         return;
 
-    // half of a 32nd note in samples = half of a 16th
-    const double half32ndSamples = (double)sixteenthNoteSamples * 0.5;
+    const double half32ndSamples = sixteenthNoteSamples * 0.5;
 
     for (double onsetSec : onsets)
     {
-        // convert onset time (seconds) to sample
-        double onsetSample = onsetSec * sampleRate;
+        const double onsetSample = onsetSec * sampleRate;
 
-        // find nearest 16th index
-        int nearestIdx = (int) std::lrint(onsetSample / (double)sixteenthNoteSamples);
-        if (nearestIdx < 0 || nearestIdx >= numSixteenths)
-            continue;
+        // nearest 16th index
+        int nearestIdx = (int) std::lrint(onsetSample / sixteenthNoteSamples);
 
-        // center sample of that 16th
-        double centerSample = (double)nearestIdx * (double)sixteenthNoteSamples;
+        // clamp instead of reject
+        nearestIdx = juce::jlimit(0, numSixteenths - 1, nearestIdx);
 
-        // allowed snapping window = one 32nd before and after
+        // center of this 16th
+        const double centerSample = nearestIdx * sixteenthNoteSamples;
+
+        // snapping window
         double windowStart = centerSample - half32ndSamples;
         double windowEnd   = centerSample + half32ndSamples;
+
+        // clamp window to file bounds
+        windowStart = std::max(0.0, windowStart);
+        windowEnd   = std::min((double) numSamples, windowEnd);
 
         if (onsetSample >= windowStart && onsetSample < windowEnd)
         {
             steps[nearestIdx] = 1;
 
-            // deviation from grid (in samples)
-            double offset = onsetSample - centerSample;
-
-            // normalize: -1.0 = late by half a 16th, +1.0 = early by half a 16th
-            float normalized = juce::jlimit(-1.0, 1.0, offset / half32ndSamples);
-
-            shifts[nearestIdx] = normalized;
+            const double offset = onsetSample - centerSample;
+            shifts[nearestIdx] = juce::jlimit(
+                -1.0f, 1.0f,
+                (float) (offset / half32ndSamples)
+            );
         }
-    }
-    
-
-    // Convert into 16-step segments (Training Data)
-    for (int bar = 0; bar < numSixteenths / 16; ++bar) {
-        std::vector<int> pattern;
-        for (int step = 0; step < 16; ++step) {
-            pattern.push_back(steps[bar * 16 + step]);
-        }
-        trainingPatterns.push_back(pattern);
     }
 }
 
+void AudioPluginAudioProcessor::processBatch(const juce::Array<juce::File>& files)
+{
+    juce::Array<juce::File> allFilesToProcess;
 
+    for (const auto& file : files)
+    {
+        if (file.isDirectory())
+        {
+            // Recursively find all .wav and .aif files in the selected folder
+            file.findChildFiles(allFilesToProcess, juce::File::findFiles, true, "*.wav;*.aif;*.aiff");
+        }
+        else if (file.getFileExtension() == ".wav" || file.getFileExtension() == ".aif" || file.getFileExtension() == ".aiff")
+        {
+            allFilesToProcess.add(file);
+        }
+    }
+
+    juce::Logger::writeToLog("Batch processing started for " + juce::String(allFilesToProcess.size()) + " files.");
+
+    for (const auto& f : allFilesToProcess)
+    {
+        // do something to files here
+        // processSingleFile(f);
+        std::cout << "file" << std::endl;
+    }
+    
+    juce::Logger::writeToLog("Batch processing complete.");
+}
 
 //==============================================================================
 // Standard JUCE boilerplate (Condensed for brevity)

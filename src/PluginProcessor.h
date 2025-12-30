@@ -6,6 +6,7 @@
 #include <torch/torch.h>
 #include <regex>
 #include "Autoencoder.h"
+//#include "GrooveAE.h"
 //==============================================================================
 class AudioPluginAudioProcessor : public juce::AudioProcessor, public juce::Thread
 {
@@ -67,6 +68,7 @@ public:
     // Functions for the UI to call
     void loadDataFromFile(const juce::File& file);
     void startTrainingSession(int epochs, double lr);
+    void processBatch(const juce::Array<juce::File>& files);
     
     // --- Audio Analysis Functionality ---
     void loadAudioFile (const juce::File& file);
@@ -100,7 +102,8 @@ private:
 
     // Neural Network
     Autoencoder model; // Our class defined in Autoencoder.h
-
+//    GrooveAE groove;
+    
     // MIDI Helper Methods
 //    void makeMIDINote(int noteNumber, int sampleOffset, juce::MidiBuffer& targetBuffer);
     void makeMIDINote(int noteNumber, int sampleOffset);
