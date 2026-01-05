@@ -6,7 +6,8 @@
 #include <torch/torch.h>
 #include <regex>
 #include "Autoencoder.h"
-//#include "GrooveAE.h"
+#include "GrooveNN.h"
+
 //==============================================================================
 class AudioPluginAudioProcessor : public juce::AudioProcessor, public juce::Thread
 {
@@ -58,10 +59,8 @@ public:
     const std::array<float, 16>& getProbabilities() const { return probabilitiesArray; }
     
     std::atomic<float> tolerance { 0.5f };
-    void generateNewRhythm();
-    torch::Tensor trainingTensor;
-    int trainingEpochs = 100;
-    double trainingLR = 0.001;
+    std::atomic<float> grooveAmount { 0.5f };
+
     
     // Helper to parse the CSV
     torch::Tensor importCsvToTensor(const juce::File& file);
@@ -80,29 +79,49 @@ public:
     int getDetectedBpm() const { return detectedBpm; }
     const std::vector<std::vector<int>>& getDetectedPatterns() const { return trainingPatterns; }
 
+    // NN Functions & Variables
+    torch::Tensor trainingTensor;
+    int trainingEpochs = 100;
+    double trainingLR = 0.001;
+    void prepareTrainingTensors();
+    void saveDataset(const juce::File& outputFile);
+    void generateNewRhythm();
+
 private:
     // Audio and Timing member variables
     double sampleRate = 44100.0;
     double currentPosition;
     double dawBpm = 120.0;
     int64_t blockStartSample = 0;
-    double currentSampleRate = 44100.0;
     int intStep = 0;
     std::atomic<double> currentStep;
     std::atomic<int> lastStep { -1 };
-    std::array<int, 16> rhythmArray, pitchArray;
-    std::array<float, 16> probabilitiesArray; // Stores raw model outputs
-
     double noteLengthSeconds = 0.2;
     juce::MidiBuffer midiBuffer;
     int numSamples;
+
+    // Sequencer arrays
+    std::array<int, 16> rhythmArray, pitchArray;
+    std::array<float, 16> probabilitiesArray; // Stores raw model outputs
+
+
+    
+    // Parallel containers for rhythm (binary) and groove (offsets)
+    std::vector<std::vector<float>> masterRhythmDataset;
+    std::vector<std::vector<float>> masterGrooveDataset;
+
+    // Separate tensors for training the two models
+    torch::Tensor trainingRhythmTensor;
+    torch::Tensor trainingGrooveTensor;
     
     std::vector<float> trainingData;
     std::atomic<bool> finishedTraining { false };
 
     // Neural Network
-    Autoencoder model; // Our class defined in Autoencoder.h
-//    GrooveAE groove;
+    Autoencoder model;
+    GaussianGrooveModel grooveModel;
+    std::unique_ptr<torch::optim::Adam> grooveOptimizer;
+    std::array<float, 16> currentGrooveShifts;
     
     // MIDI Helper Methods
 //    void makeMIDINote(int noteNumber, int sampleOffset, juce::MidiBuffer& targetBuffer);

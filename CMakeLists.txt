@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # 0. System Configuration
 # This MUST be set before project() to ensure all targets use it
 if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.7" CACHE STRING "Minimum macOS version")
 endif()
 
 # 1. Project Setup
@@ -35,6 +35,8 @@ set(SourceFiles
     src/PluginEditor.cpp
     src/PluginEditor.h
     src/Autoencoder.h
+        src/GrooveNN.h
+    src/RNN.h
 )
 
 source_group("Source" FILES ${SourceFiles})

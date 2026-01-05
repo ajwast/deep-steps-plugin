@@ -6,14 +6,13 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     : AudioProcessorEditor (&p), processorRef (p)
 {
     // Set up the step label
-    addAndMakeVisible(stepLabel);
-    stepLabel.setFont(juce::FontOptions(24.0f));
-    stepLabel.setJustificationType(juce::Justification::centred);
-    stepLabel.setColour(juce::Label::textColourId, juce::Colours::white);
-    
+    // addAndMakeVisible(stepLabel);
+    // stepLabel.setFont(juce::FontOptions(24.0f));
+    // stepLabel.setJustificationType(juce::Justification::centred);
+    // stepLabel.setColour(juce::Label::textColourId, juce::Colours::white);
+
+    // Generate button
     addAndMakeVisible(generateButton);
-        
-    // Use a lambda to tell the processor to generate a new rhythm
     generateButton.onClick = [this] {
         processorRef.generateNewRhythm();
         repaint(); // Force a redraw so we see the new pattern immediately
@@ -21,6 +20,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     
 //    auto& pitchRef = processorRef.getPitchArray();
 
+    // Pitcch Sliders
     for (int i = 0; i < 16; ++i)
         {
             addAndMakeVisible(pitchSliders[i]);
@@ -34,23 +34,35 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
             };
         }
 
-        addAndMakeVisible(importButton); // Ensure this is visible!
-        importButton.onClick = [this] {
-            csvChooser = std::make_unique<juce::FileChooser> ("Select CSV", juce::File(), "*.csv");
-            auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+    // Batch button
+    addAndMakeVisible(batchButton);
+    batchButton.onClick = [this] {
+        // Flag combo allows for files, folders, and multiple selections
+        auto flags = juce::FileBrowserComponent::openMode
+                   | juce::FileBrowserComponent::canSelectFiles
+                   | juce::FileBrowserComponent::canSelectDirectories;
+                   // | juce::FileBrowserComponent::allowMultipleFiles;
 
-            csvChooser->launchAsync(flags, [this](const juce::FileChooser& fc) {
-                auto file = fc.getResult();
-                if (file.existsAsFile())
-                    processorRef.loadDataFromFile(file);
-            });
-        };
+        batchChooser = std::make_unique<juce::FileChooser> ("Select Audio Files or Folders...",
+                                                            juce::File::getSpecialLocation(juce::File::userMusicDirectory),
+                                                            "*.wav;*.aif;*.aiff");
 
-        addAndMakeVisible(trainButton);
-        trainButton.onClick = [this] {
-            processorRef.startTrainingSession(100, 0.001);
-        };
-    
+        batchChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+            auto results = fc.getResults();
+            if (results.size() > 0)
+            {
+                processorRef.processBatch(results);
+            }
+        });
+    };
+
+    // Train button
+    addAndMakeVisible(trainButton);
+    trainButton.onClick = [this] {
+        processorRef.startTrainingSession(100, 0.001);
+    };
+
+    // Tolerance slider
     addAndMakeVisible(toleranceSlider);
     toleranceSlider.setRange(0.0, 1.0, 0.01);
     toleranceSlider.setValue(processorRef.tolerance.load());
@@ -58,27 +70,21 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
         processorRef.tolerance.store((float)toleranceSlider.getValue());
         repaint(); // Update UI immediately when sliding
     };
-
+    // Tolerance label
     addAndMakeVisible(toleranceLabel);
     toleranceLabel.setText("Tolerance", juce::dontSendNotification);
     toleranceLabel.attachToComponent(&toleranceSlider, true);
-    
-    addAndMakeVisible(analyzeButton);
-    analyzeButton.onClick = [this] {
-    audioChooser = std::make_unique<juce::FileChooser> (
-        "Select an audio file for analysis...",
-        juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-        "*.wav;*.aif;*.mp3"
-    );
 
-    auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
-
-    audioChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
-        auto file = fc.getResult();
-        if (file.existsAsFile())
-            processorRef.loadAudioFile(file);
-    });
+    // groove slider
+    addAndMakeVisible(grooveAmountSlider);
+    grooveAmountSlider.setRange(0.0, 1.0, 0.01);
+    grooveAmountSlider.setValue(processorRef.grooveAmount.load());
+    grooveAmountSlider.onValueChange = [this] {
+        processorRef.grooveAmount.store((float)grooveAmountSlider.getValue());
     };
+    // Groove label
+    addAndMakeVisible(grooveLabel);
+    grooveLabel.setText("Groove Amount", juce::dontSendNotification);
     
     setSize (800, 500);
     startTimerHz(30); // 30 FPS is usually plenty for a sequencer UI
@@ -133,23 +139,28 @@ void AudioPluginAudioProcessorEditor::resized()
     auto buttonWidth = 150;
     auto buttonHeight = 30;
 
-    // Arrange buttons in a column on the left
+    // 1. Arrange buttons in a column on the left
     generateButton.setBounds(topArea.removeFromLeft(200).withHeight(buttonHeight).withY(20));
     trainButton.setBounds(generateButton.getBounds().translated(0, 40));
-    importButton.setBounds(trainButton.getBounds().translated(0, 40));
+    saveDatasetButton.setBounds(trainButton.getBounds().translated(0, 40));
 
-    // Put Tolerance Slider on the right side of the top area
+    // Bottom button
+    batchButton.setBounds(area.removeFromBottom(40).withSize(150, 30));
+
+    // 2. Control Sliders on the right side
+    // Position Tolerance Slider
     toleranceSlider.setBounds(topArea.withSize(250, buttonHeight).withPosition(450, 20));
 
-    // Pitch Sliders in the middle
+    // Position Groove Slider (shifted 40 pixels down from the Tolerance slider)
+    grooveAmountSlider.setBounds(toleranceSlider.getBounds().translated(0, 40));
+
+    // 3. Pitch Sliders in the middle
     auto sliderArea = area.removeFromTop(150);
     auto stepWidth = sliderArea.getWidth() / 16;
     for (int i = 0; i < 16; ++i)
     {
         pitchSliders[i].setBounds(sliderArea.removeFromLeft(stepWidth).reduced(2, 0));
     }
-    
-    analyzeButton.setBounds(10, 10, 150, 30);
 }
 
 void AudioPluginAudioProcessorEditor::timerCallback()

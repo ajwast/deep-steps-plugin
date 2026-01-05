@@ -23,14 +23,19 @@ private:
 
     juce::TextButton generateButton { "Generate Rhythm" };
     juce::TextButton trainButton { "Train Model" };
-    juce::TextButton importButton { "Import CSV" };
-    juce::TextButton analyzeButton { "Analyze Loop" };
-    std::unique_ptr<juce::FileChooser> csvChooser;   // Was 'chooser'
-    std::unique_ptr<juce::FileChooser> audioChooser;
+
+    juce::TextButton saveDatasetButton { "Save .PT Dataset" };
+    std::unique_ptr<juce::FileChooser> saveChooser;
+
+    juce::TextButton batchButton { "Batch Analyze" };
+    std::unique_ptr<juce::FileChooser> batchChooser;
     
     std::array<juce::Slider, 16> pitchSliders;
     juce::Slider toleranceSlider;
     juce::Label toleranceLabel;
+
+    juce::Slider grooveAmountSlider;
+    juce::Label grooveLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessorEditor)
 };
