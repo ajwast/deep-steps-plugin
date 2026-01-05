@@ -17,7 +17,6 @@ public:
     ~AudioPluginAudioProcessor() override;
     
     void run() override;
-    
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -50,22 +49,20 @@ public:
     //==============================================================================
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
-    
+
+    // Sequencer Timing & UI getters
     std::atomic<double>& getCurrentStep() { return currentStep; }
     const std::array<int, 16>& getRhythmArray() const { return rhythmArray; }
     std::array<int, 16>& getPitchArray() { return pitchArray; }
     using PendingNote = std::tuple<int, int, int64_t>; // Channel, noteNumber, absoluteNoteOffSample
     std::vector<PendingNote> pendingNotes; // Stores pending Note Offs
     const std::array<float, 16>& getProbabilities() const { return probabilitiesArray; }
-    
+    // Slider Members
     std::atomic<float> tolerance { 0.5f };
     std::atomic<float> grooveAmount { 0.5f };
 
     
-    // Helper to parse the CSV
-    torch::Tensor importCsvToTensor(const juce::File& file);
-    // Functions for the UI to call
-    void loadDataFromFile(const juce::File& file);
+    // Training & Processing Functions
     void startTrainingSession(int epochs, double lr);
     void processBatch(const juce::Array<juce::File>& files);
     
@@ -104,8 +101,6 @@ private:
     std::array<int, 16> rhythmArray, pitchArray;
     std::array<float, 16> probabilitiesArray; // Stores raw model outputs
 
-
-    
     // Parallel containers for rhythm (binary) and groove (offsets)
     std::vector<std::vector<float>> masterRhythmDataset;
     std::vector<std::vector<float>> masterGrooveDataset;

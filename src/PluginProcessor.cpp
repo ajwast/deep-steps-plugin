@@ -154,7 +154,6 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     processPendingNotes(midiMessages, blockStart, numSamples);
 }
 
-
 void AudioPluginAudioProcessor::generateNewRhythm()
 {
     model.eval();
@@ -183,54 +182,9 @@ void AudioPluginAudioProcessor::generateNewRhythm()
         //rhythmArray[i] = (outputData[i] > 0.5) ? 1 : 0;
         currentGrooveShifts[i] = shiftData[i]; // Store the shifts!
 
-        // print shifts
-        std::cout << currentGrooveShifts[i] << std::endl;
     }
 
 
-}
-
-torch::Tensor AudioPluginAudioProcessor::importCsvToTensor(const juce::File& file)
-{
-    std::vector<float> data;
-    std::ifstream stream(file.getFullPathName().toStdString());
-
-    if (!stream.is_open()) return torch::Tensor();
-
-    std::string line;
-    while (std::getline(stream, line)) {
-        std::stringstream ss(line);
-        std::string val;
-        while (std::getline(ss, val, ',')) {
-            try {
-                // Basic cleanup of whitespace
-                val.erase(std::remove_if(val.begin(), val.end(), ::isspace), val.end());
-                if (!val.empty()) data.push_back(std::stof(val));
-            } catch (...) {}
-        }
-    }
-
-    if (data.size() < 16 || data.size() % 16 != 0) {
-        juce::Logger::writeToLog("CSV Error: Invalid data size (" + juce::String((int)data.size()) + ")");
-        return torch::Tensor();
-    }
-
-    int rows = static_cast<int>(data.size() / 16);
-    // Clone is essential because the vector 'data' will be destroyed
-    return torch::from_blob(data.data(), {rows, 16}, torch::kFloat).clone();
-}
-
-void AudioPluginAudioProcessor::loadDataFromFile(const juce::File& file)
-{
-    // SAFETY: Prevent loading new data while the training thread is active
-    if (isThreadRunning()) {
-        juce::Logger::writeToLog("Cannot load data while training is in progress.");
-        return;
-    }
-
-    trainingTensor = importCsvToTensor(file);
-    if (trainingTensor.numel() > 0)
-        juce::Logger::writeToLog("Data loaded: " + juce::String(trainingTensor.size(0)) + " rows.");
 }
 
 void AudioPluginAudioProcessor::startTrainingSession(int epochs, double lr)
@@ -317,15 +271,7 @@ void AudioPluginAudioProcessor::loadAudioFile (const juce::File& file)
         findTempoFromAudio(file);
         segmentAudioFile();
 
-        // Print results to console as requested
-        // std::cout << "--- Analysis Results ---" << std::endl;
-        // std::cout << "File Length: " << barLengthInSamples << std::endl;
-        // std::cout << "Detected BPM: " << detectedBpm << std::endl;
-        // std::cout << "Bars: " << numBars << std::endl;
-        //
-        // std::cout << steps.size() << std::endl;
-        // std::cout << steps << std::endl;
-        // std::cout << shifts << std::endl;
+
     }
 }
 
