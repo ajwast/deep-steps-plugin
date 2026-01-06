@@ -20,7 +20,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     
 //    auto& pitchRef = processorRef.getPitchArray();
 
-    // Pitcch Sliders
+    // Pitch Sliders
     for (int i = 0; i < 16; ++i)
         {
             addAndMakeVisible(pitchSliders[i]);
@@ -37,23 +37,21 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // Batch button
     addAndMakeVisible(batchButton);
     batchButton.onClick = [this] {
-        // Flag combo allows for files, folders, and multiple selections
-        auto flags = juce::FileBrowserComponent::openMode
-                   | juce::FileBrowserComponent::canSelectFiles
-                   | juce::FileBrowserComponent::canSelectDirectories;
-                   // | juce::FileBrowserComponent::allowMultipleFiles;
+        batchChooser = std::make_unique<juce::FileChooser> (
+            "Select folder of loops...",
+            juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+            "*.wav");
 
-        batchChooser = std::make_unique<juce::FileChooser> ("Select Audio Files or Folders...",
-                                                            juce::File::getSpecialLocation(juce::File::userMusicDirectory),
-                                                            "*.wav;*.aif;*.aiff");
-
-        batchChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
-            auto results = fc.getResults();
-            if (results.size() > 0)
+        batchChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+            [this] (const juce::FileChooser& fc)
             {
-                processorRef.processBatch(results);
-            }
-        });
+                auto result = fc.getResult();
+                if (result.isDirectory())
+                {
+                    // This call returns instantly, keeping the UI snappy
+                    processorRef.triggerBatchAnalysis(result);
+                }
+            });
     };
 
     // Train button
@@ -85,6 +83,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // Groove label
     addAndMakeVisible(grooveLabel);
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
+    grooveLabel.attachToComponent(&grooveAmountSlider, true
+        )
     
     setSize (800, 500);
     startTimerHz(30); // 30 FPS is usually plenty for a sequencer UI

@@ -15,9 +15,15 @@ public:
     //==============================================================================
     AudioPluginAudioProcessor();
     ~AudioPluginAudioProcessor() override;
-    
-    void run() override;
 
+    enum class ThreadTask {
+        None,
+        Training,
+        BatchAnalysis
+    };
+
+    void run() override;
+    void triggerBatchAnalysis(const juce::File& directory);
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -65,6 +71,13 @@ public:
     // Training & Processing Functions
     void startTrainingSession(int epochs, double lr);
     void processBatch(const juce::Array<juce::File>& files);
+    void processDirectory(const juce::File& dir);
+
+    std::atomic<ThreadTask> currentTask { ThreadTask::None };
+    juce::File directoryToProcess;
+
+    // Use an atomic float to report progress back to the UI
+    std::atomic<float> backgroundProgress { 0.0f };
     
     // --- Audio Analysis Functionality ---
     void loadAudioFile (const juce::File& file);
@@ -83,6 +96,7 @@ public:
     void prepareTrainingTensors();
     void saveDataset(const juce::File& outputFile);
     void generateNewRhythm();
+    void updateGrooveForNextBar();
 
 private:
     // Audio and Timing member variables
@@ -90,12 +104,13 @@ private:
     double currentPosition;
     double dawBpm = 120.0;
     int64_t blockStartSample = 0;
-    int intStep = 0;
+    // int intStep = 0;
     std::atomic<double> currentStep;
-    std::atomic<int> lastStep { -1 };
+    // std::atomic<int> lastStep { -1 };
     double noteLengthSeconds = 0.2;
     juce::MidiBuffer midiBuffer;
     int numSamples;
+    std::atomic<int64_t> lastIteration { -1 };
 
     // Sequencer arrays
     std::array<int, 16> rhythmArray, pitchArray;
@@ -114,13 +129,16 @@ private:
 
     // Neural Network
     Autoencoder model;
+
     GaussianGrooveModel grooveModel;
     std::unique_ptr<torch::optim::Adam> grooveOptimizer;
+    std::array<float, 16> grooveMeans;   // mu
+    std::array<float, 16> grooveSigmas;
     std::array<float, 16> currentGrooveShifts;
     
     // MIDI Helper Methods
 //    void makeMIDINote(int noteNumber, int sampleOffset, juce::MidiBuffer& targetBuffer);
-    void makeMIDINote(int noteNumber, int sampleOffset);
+    void makeMIDINote(int noteNumber, int sampleOffset, juce::uint8 velocity);
     void processPendingNotes(juce::MidiBuffer& midiBuffer, int64_t blockStartSample, int numSamples);
     
     // Audio Analysis Members

@@ -25,9 +25,9 @@ AudioPluginAudioProcessor::~AudioPluginAudioProcessor() {
 // MIDI HELPER FUNCTIONS
 //==============================================================================
 
-void AudioPluginAudioProcessor::makeMIDINote(int noteNumber, int sampleOffset)
+void AudioPluginAudioProcessor::makeMIDINote(int noteNumber, int sampleOffset, juce::uint8 velocity)
 {
-    auto noteOn = juce::MidiMessage::noteOn(1, noteNumber, (juce::uint8)100);
+    auto noteOn = juce::MidiMessage::noteOn(1, noteNumber, velocity);
     midiBuffer.addEvent(noteOn, sampleOffset);
 
     // Calculate absolute Note Off sample position
@@ -87,8 +87,6 @@ void AudioPluginAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
         juce::Logger::writeToLog("Torch Error: " + juce::String(e.what()));
     }
 
-    intStep = 0;
-    lastStep.store(-1);
 }
 
 void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -104,15 +102,16 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
     // 1. Get Timing Context
     dawBpm = optPos->getBpm().orFallback(120.0);
-    int64_t blockStart = optPos->getTimeInSamples().orFallback(0);
+    blockStartSample = optPos->getTimeInSamples().orFallback(0);
     int numSamples = buffer.getNumSamples();
-    int64_t blockEnd = blockStart + numSamples;
+    int64_t blockEnd = blockStartSample + numSamples;
 
     double samplesPer16th = (getSampleRate() * 60.0) / (dawBpm * 4.0);
     double samplesPerLoop = samplesPer16th * 16.0;
 
     // Update UI Progress smoothly based on grid, not shifted time
-    currentStep.store((double)blockStart / samplesPer16th);
+    currentStep.store((double)blockStartSample / samplesPer16th);
+
 
     float scale = grooveAmount.load();
     float currentTolerance = tolerance.load();
@@ -125,8 +124,14 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         if (probabilitiesArray[i] > currentTolerance)
         {
             // Determine which "iteration" of the 16-step loop we are currently in
-            int64_t currentIteration = static_cast<int64_t>(std::floor((double)blockStart / samplesPerLoop));
+            int64_t currentIteration = static_cast<int64_t>(std::floor((double)blockStartSample / samplesPerLoop));
 
+            // Update groove if needed
+            if (currentIteration != lastIteration.load())
+            {
+                updateGrooveForNextBar();
+                lastIteration.store(currentIteration);
+            }
             // Check current iteration, and one ahead/behind to catch notes
             // shifted across loop boundaries (e.g., negative shift from the start of the next bar)
             for (int64_t iteration = currentIteration - 1; iteration <= currentIteration + 1; ++iteration)
@@ -136,13 +141,15 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
                 int64_t targetSample = static_cast<int64_t>(std::round(stepNominalSample + nudge));
 
                 // TRIGGER: Does this shifted note belong in THIS block?
-                if (targetSample >= blockStart && targetSample < blockEnd)
+                if (targetSample >= blockStartSample && targetSample < blockEnd)
                 {
-                    int offset = static_cast<int>(targetSample - blockStart);
+                    int offset = static_cast<int>(targetSample - blockStartSample);
                     // Ensure offset is strictly within buffer range for safety
                     offset = juce::jlimit(0, numSamples - 1, offset);
 
-                    makeMIDINote(pitchArray[i], offset);
+                    uint8_t velocity = static_cast<uint8_t>(juce::jlimit(0.0f, 1.0f, probabilitiesArray[i]) * 127.0f);
+
+                    makeMIDINote(pitchArray[i], offset, velocity);
                 }
             }
         }
@@ -151,7 +158,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     // 3. Finalize MIDI
     midiMessages.addEvents(midiBuffer, 0, numSamples, 0);
     midiBuffer.clear();
-    processPendingNotes(midiMessages, blockStart, numSamples);
+    processPendingNotes(midiMessages, blockStartSample, numSamples);
 }
 
 void AudioPluginAudioProcessor::generateNewRhythm()
@@ -167,95 +174,190 @@ void AudioPluginAudioProcessor::generateNewRhythm()
     auto rhythmTensor = output.unsqueeze(0); // Shape [1, 16]
     auto [mu, sigma] = grooveModel.forward(rhythmTensor);
 
-    // Sample with randomness (using the tolerance slider as a 'Humanize' amount)
-    float humanize = (float)tolerance; // Ensure tolerance is updated from UI
-    auto noise = torch::randn_like(mu);
-    auto sampledShifts = mu + (noise * sigma * humanize);
-    sampledShifts = torch::clamp(sampledShifts, -1.0, 1.0);
+    auto muData = mu.data_ptr<float>();
+    auto sigmaData = sigma.data_ptr<float>();
 
     // 3. Update the internal arrays for the Editor and processBlock
     auto outputData = output.data_ptr<float>();
-    auto shiftData = sampledShifts.data_ptr<float>();
+    // auto shiftData = sampledShifts.data_ptr<float>();
 
     for (int i = 0; i < 16; ++i) {
         probabilitiesArray[i] = outputData[i];
-        //rhythmArray[i] = (outputData[i] > 0.5) ? 1 : 0;
-        currentGrooveShifts[i] = shiftData[i]; // Store the shifts!
+        rhythmArray[i] = (outputData[i] > 0.5) ? 1 : 0;
+        grooveMeans[i] = muData[i];
+        grooveSigmas[i] = sigmaData[i];
 
     }
 
+    updateGrooveForNextBar();
 
+}
+
+void AudioPluginAudioProcessor::updateGrooveForNextBar()
+{
+    float humanize = tolerance.load();
+    juce::Random& r = juce::Random::getSystemRandom();
+
+    for (int i = 0; i < 16; ++i)
+    {
+        // Simple Box-Muller or basic random approximation of the Gaussian
+        float noise = (r.nextFloat() * 2.0f - 1.0f) + (r.nextFloat() * 2.0f - 1.0f);
+        float sampled = grooveMeans[i] + (noise * grooveSigmas[i] * humanize);
+        currentGrooveShifts[i] = juce::jlimit(-1.0f, 1.0f, sampled);
+    }
+
+}
+
+void AudioPluginAudioProcessor::triggerBatchAnalysis(const juce::File& directory)
+{
+    if (!isThreadRunning())
+    {
+        directoryToProcess = directory;
+        currentTask = ThreadTask::BatchAnalysis;
+        backgroundProgress = 0.0f;
+        startThread();
+    }
 }
 
 void AudioPluginAudioProcessor::startTrainingSession(int epochs, double lr)
 {
-    // Check if we have data prepared from the batch processor
-    if (trainingRhythmTensor.numel() > 0 && !isThreadRunning())
-    {
-        trainingEpochs = epochs;
-        trainingLR = lr;
+    if (!isThreadRunning()) {
+        currentTask = ThreadTask::Training;
+        backgroundProgress = 0.0f;
 
-        juce::Logger::writeToLog("Starting training thread with " +
-                                juce::String(trainingRhythmTensor.size(0)) + " patterns...");
-        startThread();
+        // Check if we have data prepared from the batch processor
+        if (trainingRhythmTensor.numel() > 0 && !isThreadRunning())
+        {
+            trainingEpochs = epochs;
+            trainingLR = lr;
+
+            juce::Logger::writeToLog("Starting training thread with " +
+                                    juce::String(trainingRhythmTensor.size(0)) + " patterns...");
+            startThread();
+        }
+        else if (isThreadRunning()) {
+            juce::Logger::writeToLog("Training is already in progress.");
+        }
+        else {
+            juce::Logger::writeToLog("Training failed to start: No data in trainingRhythmTensor.");
+        }
+
     }
-    else if (isThreadRunning()) {
-        juce::Logger::writeToLog("Training is already in progress.");
-    }
-    else {
-        juce::Logger::writeToLog("Training failed to start: No data in trainingRhythmTensor.");
-    }
+
 }
 
 void AudioPluginAudioProcessor::run()
 {
-    // Safety check
-    if (trainingRhythmTensor.numel() == 0 || trainingGrooveTensor.numel() == 0) {
-        std::cout << "[Error] run() called but tensors are empty!" << std::endl;
-        return;
-    }
 
-    std::cout << "--- Training Started ---" << std::endl;
-
-    // Initialize optimizers with the learning rate passed from the UI
-    torch::optim::Adam rhythmOptimizer(model.parameters(), torch::optim::AdamOptions(trainingLR));
-    torch::optim::Adam grooveOptimizer(grooveModel.parameters(), torch::optim::AdamOptions(trainingLR));
-
-    model.train();
-    grooveModel.train();
-
-    for (int epoch = 0; epoch < trainingEpochs; ++epoch)
+    while (!threadShouldExit())
     {
-        if (threadShouldExit()) {
-            std::cout << "Training aborted by user." << std::endl;
+        if (currentTask == ThreadTask::BatchAnalysis)
+        {
+            // Perform the heavy lifting here
+            processDirectory(directoryToProcess);
+
+            currentTask = ThreadTask::None;
+            backgroundProgress = 1.0f; // Done
+            return; // Exit thread when done
+        }
+        else if (currentTask == ThreadTask::Training)
+        {
+            // Safety check
+            if (trainingRhythmTensor.numel() == 0 || trainingGrooveTensor.numel() == 0) {
+                std::cout << "[Error] run() called but tensors are empty!" << std::endl;
+                return;
+            }
+
+            std::cout << "--- Training Started ---" << std::endl;
+
+            // Initialize optimizers with the learning rate passed from the UI
+            torch::optim::Adam rhythmOptimizer(model.parameters(), torch::optim::AdamOptions(trainingLR));
+            torch::optim::Adam grooveOptimizer(grooveModel.parameters(), torch::optim::AdamOptions(trainingLR));
+
+            model.train();
+            grooveModel.train();
+
+            for (int epoch = 0; epoch < trainingEpochs; ++epoch)
+            {
+                if (threadShouldExit()) {
+                    std::cout << "Training aborted by user." << std::endl;
+                    return;
+                }
+
+                // 1. Train Rhythm Autoencoder
+                rhythmOptimizer.zero_grad();
+                auto rhythmPred = model.forward(trainingRhythmTensor);
+                auto rhythmLoss = torch::nn::functional::binary_cross_entropy(rhythmPred, trainingRhythmTensor);
+                rhythmLoss.backward();
+                rhythmOptimizer.step();
+
+                // 2. Train Gaussian Groove Model (Masked)
+                grooveOptimizer.zero_grad();
+                auto [mu, sigma] = grooveModel.forward(trainingRhythmTensor);
+                auto grooveLoss = calculateGaussianLoss(mu, sigma, trainingGrooveTensor, trainingRhythmTensor);
+                grooveLoss.backward();
+                grooveOptimizer.step();
+
+                // 3. Log progress every 10 epochs
+                if (epoch % 10 == 0 || epoch == trainingEpochs - 1)
+                {
+                    std::cout << "Epoch: " << epoch
+                              << " | Rhythm Loss: " << rhythmLoss.item<float>()
+                              << " | Groove Loss: " << grooveLoss.item<float>() << std::endl;
+                }
+            }
+
+            finishedTraining = true;
+            std::cout << "--- Training Finished Successfully ---" << std::endl;
+
+            currentTask = ThreadTask::None;
             return;
         }
 
-        // 1. Train Rhythm Autoencoder
-        rhythmOptimizer.zero_grad();
-        auto rhythmPred = model.forward(trainingRhythmTensor);
-        auto rhythmLoss = torch::nn::functional::binary_cross_entropy(rhythmPred, trainingRhythmTensor);
-        rhythmLoss.backward();
-        rhythmOptimizer.step();
+        // Avoid burning CPU if there's nothing to do
+        wait(100);
+    }
+}
 
-        // 2. Train Gaussian Groove Model (Masked)
-        grooveOptimizer.zero_grad();
-        auto [mu, sigma] = grooveModel.forward(trainingRhythmTensor);
-        auto grooveLoss = calculateGaussianLoss(mu, sigma, trainingGrooveTensor, trainingRhythmTensor);
-        grooveLoss.backward();
-        grooveOptimizer.step();
+void AudioPluginAudioProcessor::processDirectory(const juce::File& dir)
+{
+    auto files = dir.findChildFiles(juce::File::findFiles, false, "*.wav");
+    int totalFiles = files.size();
 
-        // 3. Log progress every 10 epochs
-        if (epoch % 10 == 0 || epoch == trainingEpochs - 1)
+    for (int i = 0; i < totalFiles; ++i)
+    {
+        if (threadShouldExit()) return;
+
+        // Perform analysis
+        // We pass the file and collect results without touching member buffers yet
+        loadAudioFile(files[i]);
+
+        // Only process if loadAudioFile actually produced steps
+        if (steps.size() >= 16)
         {
-            std::cout << "Epoch: " << epoch
-                      << " | Rhythm Loss: " << rhythmLoss.item<float>()
-                      << " | Groove Loss: " << grooveLoss.item<float>() << std::endl;
+            int totalBars = (int)steps.size() / 16;
+            for (int bar = 0; bar < totalBars; ++bar)
+            {
+                std::vector<float> rhythmBar;
+                std::vector<float> grooveBar;
+
+                for (int j = 0; j < 16; ++j) {
+                    int index = (bar * 16) + j;
+                    rhythmBar.push_back((float)steps[index]);
+                    grooveBar.push_back(shifts[index]);
+                }
+
+                masterRhythmDataset.push_back(rhythmBar);
+                masterGrooveDataset.push_back(grooveBar);
+            }
         }
+
+        backgroundProgress.store((float)i / (float)totalFiles);
     }
 
-    finishedTraining = true;
-    std::cout << "--- Training Finished Successfully ---" << std::endl;
+    juce::Logger::writeToLog("Batch Complete. Bars processed: " + juce::String(masterRhythmDataset.size()));
+    // Convert to tensors only after ALL files are processed
+    prepareTrainingTensors();
 }
 
 void AudioPluginAudioProcessor::loadAudioFile (const juce::File& file)
@@ -439,9 +541,6 @@ void AudioPluginAudioProcessor::segmentAudioFile()
 
     numBars = (int) std::ceil((double)numSamples / barLengthInSamples);
     numSixteenths = (int) std::ceil((double)numSamples / sixteenthNoteSamples);
-    
-//    torch::Tensor stepsT = torch::zeros(numSixteenths);
-//    torch::Tensor shiftsT = torch::zeros(numSixteenths);
 
     steps.assign(numSixteenths, 0);
     shifts.assign(numSixteenths, 0.0f);
@@ -494,12 +593,15 @@ void AudioPluginAudioProcessor::processBatch(const juce::Array<juce::File>& file
 {
     for (const auto& file : files)
     {
+        if (threadShouldExit()) return;if (threadShouldExit()) return;
+
         if (file.isDirectory()) {
             juce::Array<juce::File> children;
             file.findChildFiles(children, juce::File::findFiles, true, "*.wav;*.aif");
             processBatch(children);
         }
         else {
+
             loadAudioFile(file); // This calls segmentAudioFile() internally
             
             // Slice the full-file vectors (steps/shifts) into 16-step bars
@@ -520,6 +622,8 @@ void AudioPluginAudioProcessor::processBatch(const juce::Array<juce::File>& file
                 masterGrooveDataset.push_back(grooveBar);
             }
         }
+        // // Update progress for the UI
+        // backgroundProgress.store((float)i / (float)total);
     }
     
     juce::Logger::writeToLog("Batch Complete. Bars processed: " + juce::String(masterRhythmDataset.size()));
@@ -568,7 +672,7 @@ void AudioPluginAudioProcessor::prepareTrainingTensors()
 
 
 //==============================================================================
-// Standard JUCE boilerplate (Condensed for brevity)
+// Standard JUCE boilerplate
 //==============================================================================
 
 const juce::String AudioPluginAudioProcessor::getName() const { return JucePlugin_Name; }
