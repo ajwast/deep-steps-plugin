@@ -60,6 +60,7 @@ public:
     std::atomic<double>& getCurrentStep() { return currentStep; }
     const std::array<int, 16>& getRhythmArray() const { return rhythmArray; }
     std::array<int, 16>& getPitchArray() { return pitchArray; }
+    double getBackgroundProgress() {return  backgroundProgress;}
     using PendingNote = std::tuple<int, int, int64_t>; // Channel, noteNumber, absoluteNoteOffSample
     std::vector<PendingNote> pendingNotes; // Stores pending Note Offs
     const std::array<float, 16>& getProbabilities() const { return probabilitiesArray; }
@@ -77,7 +78,7 @@ public:
     juce::File directoryToProcess;
 
     // Use an atomic float to report progress back to the UI
-    std::atomic<float> backgroundProgress { 0.0f };
+    std::atomic<double> backgroundProgress { 0.0 };
     
     // --- Audio Analysis Functionality ---
     void loadAudioFile (const juce::File& file);
@@ -91,7 +92,7 @@ public:
 
     // NN Functions & Variables
     torch::Tensor trainingTensor;
-    int trainingEpochs = 100;
+    int trainingEpochs = 200;
     double trainingLR = 0.001;
     void prepareTrainingTensors();
     void saveDataset(const juce::File& outputFile);

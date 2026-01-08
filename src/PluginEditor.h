@@ -37,5 +37,8 @@ private:
     juce::Slider grooveAmountSlider;
     juce::Label grooveLabel;
 
+    juce::ProgressBar trainingProgressBar;
+    double progress;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessorEditor)
 };

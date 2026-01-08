@@ -3,13 +3,8 @@
 
 //==============================================================================
 AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAudioProcessor& p)
-    : AudioProcessorEditor (&p), processorRef (p)
+    : AudioProcessorEditor (&p), processorRef (p), trainingProgressBar(progress)
 {
-    // Set up the step label
-    // addAndMakeVisible(stepLabel);
-    // stepLabel.setFont(juce::FontOptions(24.0f));
-    // stepLabel.setJustificationType(juce::Justification::centred);
-    // stepLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
     // Generate button
     addAndMakeVisible(generateButton);
@@ -18,7 +13,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
         repaint(); // Force a redraw so we see the new pattern immediately
     };
     
-//    auto& pitchRef = processorRef.getPitchArray();
+
 
     // Pitch Sliders
     for (int i = 0; i < 16; ++i)
@@ -54,10 +49,13 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
             });
     };
 
+
+    addAndMakeVisible(trainingProgressBar);
+
     // Train button
     addAndMakeVisible(trainButton);
     trainButton.onClick = [this] {
-        processorRef.startTrainingSession(100, 0.001);
+        processorRef.startTrainingSession(200, 0.001);
     };
 
     // Tolerance slider
@@ -83,8 +81,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // Groove label
     addAndMakeVisible(grooveLabel);
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
-    grooveLabel.attachToComponent(&grooveAmountSlider, true
-        )
+    grooveLabel.attachToComponent(&grooveAmountSlider, true);
     
     setSize (800, 500);
     startTimerHz(30); // 30 FPS is usually plenty for a sequencer UI
@@ -147,6 +144,8 @@ void AudioPluginAudioProcessorEditor::resized()
     // Bottom button
     batchButton.setBounds(area.removeFromBottom(40).withSize(150, 30));
 
+    trainingProgressBar.setBounds(area.removeFromBottom(25));
+
     // 2. Control Sliders on the right side
     // Position Tolerance Slider
     toleranceSlider.setBounds(topArea.withSize(250, buttonHeight).withPosition(450, 20));
@@ -170,7 +169,9 @@ void AudioPluginAudioProcessorEditor::timerCallback()
     
     // Update label text
     stepLabel.setText("Step: " + juce::String((static_cast<int>(currentStep)% 16) + 1), juce::dontSendNotification);
-    
+
+    progress = processorRef.getBackgroundProgress();
+
     // TRIGGER THE UI REFRESH
     repaint();
 }

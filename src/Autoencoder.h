@@ -10,7 +10,7 @@ struct Autoencoder : torch::nn::Module {
               torch::nn::ReLU(),
               torch::nn::Linear(8, 4),
               torch::nn::BatchNorm1d(4),
-              torch::nn::ReLU())),
+              torch::nn::Tanh())),
           decoder(torch::nn::Sequential(
               torch::nn::Linear(4, 8),
               torch::nn::BatchNorm1d(8),

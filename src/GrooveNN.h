@@ -22,8 +22,7 @@ struct GaussianGrooveModel : torch::nn::Module {
 
     std::pair<torch::Tensor, torch::Tensor> forward(torch::Tensor x) {
         auto h = hidden->forward(x);
-        
-        // FIX: Using correct head names defined in constructor
+
         torch::Tensor mu_raw = mu_head->forward(h);
         torch::Tensor mu = torch::tanh(mu_raw); // Guaranteed -1.0 to 1.0
 

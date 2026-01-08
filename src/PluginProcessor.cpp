@@ -257,7 +257,7 @@ void AudioPluginAudioProcessor::run()
             processDirectory(directoryToProcess);
 
             currentTask = ThreadTask::None;
-            backgroundProgress = 1.0f; // Done
+            backgroundProgress = 1.0; // Done
             return; // Exit thread when done
         }
         else if (currentTask == ThreadTask::Training)
@@ -284,6 +284,7 @@ void AudioPluginAudioProcessor::run()
                     return;
                 }
 
+                backgroundProgress.store((double)epoch / (double)trainingEpochs);
                 // 1. Train Rhythm Autoencoder
                 rhythmOptimizer.zero_grad();
                 auto rhythmPred = model.forward(trainingRhythmTensor);
@@ -309,7 +310,7 @@ void AudioPluginAudioProcessor::run()
 
             finishedTraining = true;
             std::cout << "--- Training Finished Successfully ---" << std::endl;
-
+            backgroundProgress.store(0.0);
             currentTask = ThreadTask::None;
             return;
         }
@@ -352,7 +353,7 @@ void AudioPluginAudioProcessor::processDirectory(const juce::File& dir)
             }
         }
 
-        backgroundProgress.store((float)i / (float)totalFiles);
+        backgroundProgress.store((double)i / (double)totalFiles);
     }
 
     juce::Logger::writeToLog("Batch Complete. Bars processed: " + juce::String(masterRhythmDataset.size()));
