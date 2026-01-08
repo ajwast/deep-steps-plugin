@@ -55,7 +55,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // Train button
     addAndMakeVisible(trainButton);
     trainButton.onClick = [this] {
-        processorRef.startTrainingSession(200, 0.001);
+        processorRef.startTrainingSession(100, 0.001);
     };
 
     // Tolerance slider

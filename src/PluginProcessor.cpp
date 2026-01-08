@@ -167,7 +167,7 @@ void AudioPluginAudioProcessor::generateNewRhythm()
     grooveModel.eval();
 
     // 1. Generate Rhythm (Current Logic)
-    auto input = torch::randn({1, 4});
+    auto input = (torch::rand({1, 4}) * 2.0) - 1.0;
     auto output = model.decode(input).view({16});
 
     // 2. Generate Groove (Sampling from the Gaussian)
