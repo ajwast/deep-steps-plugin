@@ -101,7 +101,7 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
     auto stepAreaWidth = area.getWidth() - 80;
     auto stepWidth = stepAreaWidth / 16;
     auto stepHeight = 30;
-    auto yPos = 400;
+    auto yPos = 350;
     
     const auto& probs = processorRef.getProbabilities();
     float currentTol = processorRef.tolerance.load();

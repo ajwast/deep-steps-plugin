@@ -166,9 +166,22 @@ void AudioPluginAudioProcessor::generateNewRhythm()
     model.eval();
     grooveModel.eval();
 
-    // 1. Generate Rhythm (Current Logic)
-    auto input = (torch::rand({1, 4}) * 2.0) - 1.0;
-    auto output = model.decode(input).view({16});
+    // 1. Generate Rhythm
+    torch::Tensor latent;
+
+    if (densityEstimated) {
+        // Sample using the surveyed Mean and StdDev
+        // torch::randn gives us the "variation", which we scale by our surveyed stats
+        latent = latentMeans + (torch::randn({1, 4}) * latentStdDevs);
+
+        // Safety: clamp to the tanh boundaries [-1, 1]
+        latent = torch::clamp(latent, -1.0, 1.0);
+    } else {
+        // Fallback if training hasn't happened yet
+        latent = (torch::rand({1, 4}) * 2.0) - 1.0;
+    }
+
+    auto output = model.decode(latent).view({16});
 
     // 2. Generate Groove (Sampling from the Gaussian)
     auto rhythmTensor = output.unsqueeze(0); // Shape [1, 16]
@@ -246,6 +259,30 @@ void AudioPluginAudioProcessor::startTrainingSession(int epochs, double lr)
 
 }
 
+void AudioPluginAudioProcessor::estimateLatentDensity()
+{
+    if (trainingRhythmTensor.numel() == 0) return;
+
+    torch::NoGradGuard no_grad;
+    model.eval();
+
+    // 1. Pass the entire training set through the encoder
+    // Shape: [NumPatterns, 4]
+    auto latents = model.encoder->forward(trainingRhythmTensor);
+
+    // 2. Calculate the Mean and StdDev for each of the 4 dimensions
+    // dim(0) means we collapse the "Rows" (patterns) to get stats for each "Column" (dimension)
+    latentMeans = torch::mean(latents, 0);
+    latentStdDevs = torch::std(latents, 0);
+
+    densityEstimated = true;
+
+    juce::Logger::writeToLog("Ex-Post Density Estimation Complete.");
+    // Log the first dimension's stats as a sanity check
+    std::cout << "Latent Dim 0 -> Mean: " << latentMeans[0].item<float>()
+              << " Std: " << latentStdDevs[0].item<float>() << std::endl;
+}
+
 void AudioPluginAudioProcessor::run()
 {
 
@@ -268,47 +305,66 @@ void AudioPluginAudioProcessor::run()
                 return;
             }
 
-            std::cout << "--- Training Started ---" << std::endl;
+            std::cout << "--- Training Started (RAE Regularization Enabled) ---" << std::endl;
 
-            // Initialize optimizers with the learning rate passed from the UI
-            torch::optim::Adam rhythmOptimizer(model.parameters(), torch::optim::AdamOptions(trainingLR));
+            // Initialize optimizers
+            auto rhythmOptions = torch::optim::AdamOptions(trainingLR).weight_decay(1e-5);
+            torch::optim::Adam rhythmOptimizer(model.parameters(), rhythmOptions);
             torch::optim::Adam grooveOptimizer(grooveModel.parameters(), torch::optim::AdamOptions(trainingLR));
 
             model.train();
             grooveModel.train();
 
+            // Hyperparameter for the Latent Penalty (RAE)
+            // 0.01 is a good starting point. Higher values make the space more "compact".
+            const float lambda = 0.02f;
+
             for (int epoch = 0; epoch < trainingEpochs; ++epoch)
             {
-                if (threadShouldExit()) {
-                    std::cout << "Training aborted by user." << std::endl;
-                    return;
-                }
+                if (threadShouldExit()) return;
 
                 backgroundProgress.store((double)epoch / (double)trainingEpochs);
-                // 1. Train Rhythm Autoencoder
+
+                // --- 1. Train Rhythm Autoencoder (with RAE Penalty) ---
                 rhythmOptimizer.zero_grad();
-                auto rhythmPred = model.forward(trainingRhythmTensor);
-                auto rhythmLoss = torch::nn::functional::binary_cross_entropy(rhythmPred, trainingRhythmTensor);
-                rhythmLoss.backward();
+
+                // We run encoder and decoder separately here so we can "see" the latent space
+                auto latent = model.encoder->forward(trainingRhythmTensor);
+                auto rhythmPred = model.decoder->forward(latent);
+
+                // Loss A: Reconstruction (Standard BCE)
+                auto reconLoss = torch::nn::functional::binary_cross_entropy(rhythmPred, trainingRhythmTensor);
+
+                // Loss B: Latent Penalty (L2 Regularization on the bottleneck)
+                // This forces the tanh outputs to stay near 0 when possible
+                auto latentPenalty = torch::mean(torch::pow(latent, 2));
+
+                // Total Loss
+                auto totalRhythmLoss = reconLoss + (lambda * latentPenalty);
+
+                totalRhythmLoss.backward();
                 rhythmOptimizer.step();
 
-                // 2. Train Gaussian Groove Model (Masked)
+                // --- 2. Train Gaussian Groove Model (Masked) ---
                 grooveOptimizer.zero_grad();
                 auto [mu, sigma] = grooveModel.forward(trainingRhythmTensor);
                 auto grooveLoss = calculateGaussianLoss(mu, sigma, trainingGrooveTensor, trainingRhythmTensor);
+
                 grooveLoss.backward();
                 grooveOptimizer.step();
 
-                // 3. Log progress every 10 epochs
+                // 3. Log progress
                 if (epoch % 10 == 0 || epoch == trainingEpochs - 1)
                 {
                     std::cout << "Epoch: " << epoch
-                              << " | Rhythm Loss: " << rhythmLoss.item<float>()
+                              << " | Recon: " << reconLoss.item<float>()
+                              << " | Latent Pen: " << latentPenalty.item<float>()
                               << " | Groove Loss: " << grooveLoss.item<float>() << std::endl;
                 }
             }
 
             finishedTraining = true;
+            estimateLatentDensity();
             std::cout << "--- Training Finished Successfully ---" << std::endl;
             backgroundProgress.store(0.0);
             currentTask = ThreadTask::None;
@@ -649,26 +705,46 @@ void AudioPluginAudioProcessor::prepareTrainingTensors()
     trainingGrooveTensor = torch::from_blob(flatGroove.data(), {numRows, 16}, options).clone();
 }
 
-// void AudioPluginAudioProcessor::saveDataset(const juce::File& outputFile)
-// {
-//     if (trainingRhythmTensor.numel() == 0 || trainingGrooveTensor.numel() == 0)
-//         return;
-//
-//     try {
-//         // Create a map to hold both tensors
-//         std::map<std::string, torch::Tensor> tensorMap;
-//         tensorMap["rhythm"] = trainingRhythmTensor;
-//         tensorMap["groove"] = trainingGrooveTensor;
-//
-//         // Save the map to a single file
-//         torch::save(tensorMap, outputFile.getFullPathName().toStdString());
-//
-//         juce::Logger::writeToLog("Dual-Model Dataset saved successfully.");
-//     }
-//     catch (const std::exception& e) {
-//         juce::Logger::writeToLog("Save Error: " + juce::String(e.what()));
-//     }
-// }
+void AudioPluginAudioProcessor::saveDataset(const juce::File& outputFile)
+{
+    if (trainingRhythmTensor.numel() == 0 || trainingGrooveTensor.numel() == 0)
+        return;
+
+    try {
+        // Create an OutputArchive
+        torch::serialize::OutputArchive archive;
+
+        // Write each tensor with a string key
+        archive.write("rhythm", trainingRhythmTensor);
+        archive.write("groove", trainingGrooveTensor);
+
+        // Save the archive to the file path
+        archive.save_to(outputFile.getFullPathName().toStdString());
+
+        juce::Logger::writeToLog("Dual-Model Dataset saved successfully: " + outputFile.getFileName());
+    }
+    catch (const std::exception& e) {
+        juce::Logger::writeToLog("Save Error: " + juce::String(e.what()));
+    }
+}
+
+void AudioPluginAudioProcessor::loadDataset(const juce::File& inputFile)
+{
+    try {
+        torch::serialize::InputArchive archive;
+        archive.load_from(inputFile.getFullPathName().toStdString());
+
+        // Read the tensors back using the same keys
+        archive.read("rhythm", trainingRhythmTensor);
+        archive.read("groove", trainingGrooveTensor);
+
+        juce::Logger::writeToLog("Dataset loaded successfully.");
+    }
+    catch (const std::exception& e) {
+        juce::Logger::writeToLog("Load Error: " + juce::String(e.what()));
+    }
+}
+
 
 
 

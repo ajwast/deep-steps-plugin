@@ -96,6 +96,7 @@ public:
     double trainingLR = 0.001;
     void prepareTrainingTensors();
     void saveDataset(const juce::File& outputFile);
+    void loadDataset(const juce::File& inputFile);
     void generateNewRhythm();
     void updateGrooveForNextBar();
 
@@ -136,6 +137,14 @@ private:
     std::array<float, 16> grooveMeans;   // mu
     std::array<float, 16> grooveSigmas;
     std::array<float, 16> currentGrooveShifts;
+
+    // Stores the "shape" of our learned latent space
+    torch::Tensor latentMeans;
+    torch::Tensor latentStdDevs;
+    bool densityEstimated = false;
+
+    void estimateLatentDensity(); // The new function
+
     
     // MIDI Helper Methods
 //    void makeMIDINote(int noteNumber, int sampleOffset, juce::MidiBuffer& targetBuffer);
