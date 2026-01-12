@@ -24,11 +24,15 @@ private:
     juce::TextButton generateButton { "Generate Rhythm" };
     juce::TextButton trainButton { "Train Model" };
 
-    juce::TextButton saveDatasetButton { "Save .PT Dataset" };
+    juce::TextButton saveDatasetButton { "Save Dataset" };
     std::unique_ptr<juce::FileChooser> saveChooser;
 
     juce::TextButton batchButton { "Batch Analyze" };
     std::unique_ptr<juce::FileChooser> batchChooser;
+
+    juce::TextButton loadDatasetButton {"Load Dataset"};
+    std::unique_ptr<juce::FileChooser> loadChooser;
+
     
     std::array<juce::Slider, 16> pitchSliders;
     juce::Slider toleranceSlider;

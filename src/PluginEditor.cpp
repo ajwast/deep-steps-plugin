@@ -48,8 +48,32 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
                 }
             });
     };
+    // Save dataset button
+    addAndMakeVisible(saveDatasetButton);
+    saveDatasetButton.onClick = [this] {
+        saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
+        auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
+
+        saveChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+            auto file = fc.getResult();
+            if (file != juce::File()) processorRef.saveDataset(file);
+        });
+    };
+
+    // Load dataset button
+    addAndMakeVisible((loadDatasetButton));
+    loadDatasetButton.onClick = [this] {
+        loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
+        auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+
+        loadChooser->launchAsync(flags, [this] (const juce::FileChooser& fc) {
+            auto file = fc.getResult();
+            if (file.existsAsFile()) processorRef.loadDataset(file);
+        });
+    };
 
 
+    // Progress Bar
     addAndMakeVisible(trainingProgressBar);
 
     // Train button
@@ -140,6 +164,7 @@ void AudioPluginAudioProcessorEditor::resized()
     generateButton.setBounds(topArea.removeFromLeft(200).withHeight(buttonHeight).withY(20));
     trainButton.setBounds(generateButton.getBounds().translated(0, 40));
     saveDatasetButton.setBounds(trainButton.getBounds().translated(0, 40));
+    loadDatasetButton.setBounds(saveDatasetButton.getBounds().translated(0,40));
 
     // Bottom button
     batchButton.setBounds(area.removeFromBottom(40).withSize(150, 30));

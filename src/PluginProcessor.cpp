@@ -290,7 +290,7 @@ void AudioPluginAudioProcessor::run()
     {
         if (currentTask == ThreadTask::BatchAnalysis)
         {
-            // Perform the heavy lifting here
+
             processDirectory(directoryToProcess);
 
             currentTask = ThreadTask::None;
@@ -316,8 +316,7 @@ void AudioPluginAudioProcessor::run()
             grooveModel.train();
 
             // Hyperparameter for the Latent Penalty (RAE)
-            // 0.01 is a good starting point. Higher values make the space more "compact".
-            const float lambda = 0.02f;
+            const float lambda = 0.01f;
 
             for (int epoch = 0; epoch < trainingEpochs; ++epoch)
             {
@@ -336,7 +335,6 @@ void AudioPluginAudioProcessor::run()
                 auto reconLoss = torch::nn::functional::binary_cross_entropy(rhythmPred, trainingRhythmTensor);
 
                 // Loss B: Latent Penalty (L2 Regularization on the bottleneck)
-                // This forces the tanh outputs to stay near 0 when possible
                 auto latentPenalty = torch::mean(torch::pow(latent, 2));
 
                 // Total Loss
