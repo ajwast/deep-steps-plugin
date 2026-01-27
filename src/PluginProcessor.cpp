@@ -75,21 +75,6 @@ void AudioPluginAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 
     pendingNotes.clear();
 
-    // --- Neural Network Inference Test ---
-//     torch::NoGradGuard no_grad; // Disable gradient calculation for inference
-//     model.eval();               // Set BatchNorm to evaluation mode
-//
-//     try {
-//         torch::Tensor latent = torch::rand({1, 4});
-//         torch::Tensor generated = model.decode(latent);
-//
-//         auto generatedAccessor = generated.accessor<float, 2>();
-//         for (int i = 0; i < 16; ++i) {
-//             rhythmArray[i] = (generatedAccessor[0][i] > tolerance) ? 1 : 0;
-//         }
-//     } catch (const std::exception& e) {
-//         juce::Logger::writeToLog("Torch Error: " + juce::String(e.what()));
-//     }
 //
 }
 
@@ -750,8 +735,18 @@ void AudioPluginAudioProcessor::loadDataset(const juce::File& inputFile)
 juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::createParameterLayout()
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("tolerance", "Tolerance", 0.0f, 1.0f, 0.5f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>("grooveAmount", "Groove Amount", 0.0f, 1.0f, 0.5f));
+
+    // The last argument (1) is the version hint
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID {"tolerance", 1},    // Use ParameterID object to set version hint
+        "Tolerance",
+        0.0f, 1.0f, 0.5f));
+
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID {"grooveAmount", 1}, // Use ParameterID object to set version hint
+        "Groove Amount",
+        0.0f, 1.0f, 0.5f));
+
     return { params.begin(), params.end() };
 }
 
