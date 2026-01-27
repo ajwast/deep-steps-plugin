@@ -1,5 +1,3 @@
-#pragma once
-
 #include "PluginProcessor.h"
 
 //==============================================================================
@@ -17,7 +15,7 @@ private:
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     AudioPluginAudioProcessor& processorRef;
-    
+
     juce::Label stepLabel;
     double currentStep;
 
@@ -33,8 +31,11 @@ private:
     juce::TextButton loadDatasetButton {"Load Dataset"};
     std::unique_ptr<juce::FileChooser> loadChooser;
 
-    
+
     std::array<juce::Slider, 16> pitchSliders;
+
+
+
     juce::Slider toleranceSlider;
     juce::Label toleranceLabel;
 
@@ -43,6 +44,9 @@ private:
 
     juce::ProgressBar trainingProgressBar;
     double progress;
+
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toleranceAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> grooveAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessorEditor)
 };

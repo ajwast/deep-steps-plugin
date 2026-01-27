@@ -64,9 +64,14 @@ public:
     using PendingNote = std::tuple<int, int, int64_t>; // Channel, noteNumber, absoluteNoteOffSample
     std::vector<PendingNote> pendingNotes; // Stores pending Note Offs
     const std::array<float, 16>& getProbabilities() const { return probabilitiesArray; }
-    // Slider Members
-    std::atomic<float> tolerance { 0.5f };
-    std::atomic<float> grooveAmount { 0.5f };
+
+    // Value Tree State & Parameters
+
+    juce::AudioProcessorValueTreeState apvts;
+    juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+
+    std::atomic<float>* toleranceParameter = nullptr;
+    std::atomic<float>* grooveParameter = nullptr;
 
     
     // Training & Processing Functions

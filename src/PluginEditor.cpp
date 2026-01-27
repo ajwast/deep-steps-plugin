@@ -85,11 +85,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // Tolerance slider
     addAndMakeVisible(toleranceSlider);
     toleranceSlider.setRange(0.0, 1.0, 0.01);
-    toleranceSlider.setValue(processorRef.tolerance.load());
-    toleranceSlider.onValueChange = [this] {
-        processorRef.tolerance.store((float)toleranceSlider.getValue());
-        repaint(); // Update UI immediately when sliding
-    };
+    toleranceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.apvts, "tolerance", toleranceSlider);
     // Tolerance label
     addAndMakeVisible(toleranceLabel);
     toleranceLabel.setText("Tolerance", juce::dontSendNotification);
@@ -98,10 +95,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // groove slider
     addAndMakeVisible(grooveAmountSlider);
     grooveAmountSlider.setRange(0.0, 1.0, 0.01);
-    grooveAmountSlider.setValue(processorRef.grooveAmount.load());
-    grooveAmountSlider.onValueChange = [this] {
-        processorRef.grooveAmount.store((float)grooveAmountSlider.getValue());
-    };
+    grooveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.apvts, "grooveAmount", grooveAmountSlider);
     // Groove label
     addAndMakeVisible(grooveLabel);
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
@@ -128,7 +123,7 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
     auto yPos = 350;
     
     const auto& probs = processorRef.getProbabilities();
-    float currentTol = processorRef.tolerance.load();
+    float currentTol = toleranceSlider.getValue();
 
 //    // Get the current rhythm pattern from the processor
 //    const auto& rhythm = processorRef.getRhythmArray();
