@@ -17,17 +17,15 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
 
     // Pitch Sliders
     for (int i = 0; i < 16; ++i)
-        {
-            addAndMakeVisible(pitchSliders[i]);
-            pitchSliders[i].setSliderStyle(juce::Slider::LinearVertical);
-            pitchSliders[i].setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-            pitchSliders[i].setRange(36, 96, 1);
-            pitchSliders[i].setValue(processorRef.getPitchArray()[i]);
+    {
+        addAndMakeVisible(pitchSliders[i]);
+        pitchSliders[i].setSliderStyle(juce::Slider::LinearVertical);
+        pitchSliders[i].setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
 
-            pitchSliders[i].onValueChange = [this, i] {
-                processorRef.getPitchArray()[i] = static_cast<int>(pitchSliders[i].getValue());
-            };
-        }
+        // The attachment now handles the range, value, and syncing automatically
+        pitchAttachments[i] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            processorRef.apvts, "pitch" + juce::String(i), pitchSliders[i]);
+    }
 
     // Batch button
     addAndMakeVisible(batchButton);

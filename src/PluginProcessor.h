@@ -72,6 +72,7 @@ public:
 
     std::atomic<float>* toleranceParameter = nullptr;
     std::atomic<float>* grooveParameter = nullptr;
+    std::array<std::atomic<float>*, 16> pitchParameters;
 
     
     // Training & Processing Functions

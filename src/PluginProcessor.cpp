@@ -20,6 +20,10 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     // Safely get the pointers now that apvts is constructed
     toleranceParameter = apvts.getRawParameterValue("tolerance");
     grooveParameter    = apvts.getRawParameterValue("grooveAmount");
+    for (int i = 0; i < 16; ++i)
+    {
+        pitchParameters[i] = apvts.getRawParameterValue("pitch" + juce::String(i));
+    }
 }
 AudioPluginAudioProcessor::~AudioPluginAudioProcessor() {
     stopThread(2000);
@@ -138,7 +142,8 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
                     uint8_t velocity = static_cast<uint8_t>(juce::jlimit(0.0f, 1.0f, probabilitiesArray[i]) * 127.0f);
 
-                    makeMIDINote(pitchArray[i], offset, velocity);
+                    int currentPitch = static_cast<int>(pitchParameters[i]->load());
+                    makeMIDINote(currentPitch, offset, velocity);
                 }
             }
         }
@@ -736,16 +741,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // The last argument (1) is the version hint
+    // Tolerance parameter
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID {"tolerance", 1},    // Use ParameterID object to set version hint
         "Tolerance",
         0.0f, 1.0f, 0.5f));
-
+    // Groove
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID {"grooveAmount", 1}, // Use ParameterID object to set version hint
         "Groove Amount",
         0.0f, 1.0f, 0.5f));
+
+    // Pitch slider params
+    for (int i = 0; i < 16; ++i)
+    {
+        juce::String id = "pitch" + juce::String(i);
+        juce::String name = "Step " + juce::String(i + 1) + " Pitch";
+
+        params.push_back(std::make_unique<juce::AudioParameterInt>(
+            juce::ParameterID {id, 1}, name, 0, 127, 60));
+    }
 
     return { params.begin(), params.end() };
 }
