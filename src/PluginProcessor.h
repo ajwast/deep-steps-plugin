@@ -153,7 +153,6 @@ private:
 
     
     // MIDI Helper Methods
-//    void makeMIDINote(int noteNumber, int sampleOffset, juce::MidiBuffer& targetBuffer);
     void makeMIDINote(int noteNumber, int sampleOffset, juce::uint8 velocity);
     void processPendingNotes(juce::MidiBuffer& midiBuffer, int64_t blockStartSample, int numSamples);
     
