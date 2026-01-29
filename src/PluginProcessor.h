@@ -63,6 +63,7 @@ public:
     double getBackgroundProgress() {return  backgroundProgress;}
     using PendingNote = std::tuple<int, int, int64_t>; // Channel, noteNumber, absoluteNoteOffSample
     std::vector<PendingNote> pendingNotes; // Stores pending Note Offs
+    mutable juce::CriticalSection pendingNotesLock;  // Mutex to protect pendingNotes vector
     const std::array<float, 16>& getProbabilities() const { return probabilitiesArray; }
 
     // Value Tree State & Parameters

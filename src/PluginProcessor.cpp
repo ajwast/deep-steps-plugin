@@ -40,25 +40,34 @@ void AudioPluginAudioProcessor::makeMIDINote(int noteNumber, int sampleOffset, j
 
     // Calculate absolute Note Off sample position
     int64_t noteOffSample = blockStartSample + sampleOffset + static_cast<int64_t>(sampleRate * noteLengthSeconds);
-    pendingNotes.push_back({noteOn.getChannel(), noteOn.getNoteNumber(), noteOffSample});
+
+    // Lock when modifying the vector
+    {
+        juce::ScopedLock lock(pendingNotesLock);
+        pendingNotes.push_back({noteOn.getChannel(), noteOn.getNoteNumber(), noteOffSample});
+    }
 }
 
 void AudioPluginAudioProcessor::processPendingNotes(juce::MidiBuffer& targetMidiBuffer, int64_t currentBlockStart, int numSamplesInBlock)
 {
-    for (auto it = pendingNotes.begin(); it != pendingNotes.end();)
+    // Lock when accessing/modifying the vector
     {
-        const auto& [channel, noteNumber, noteOffSample] = *it;
+        juce::ScopedLock lock(pendingNotesLock);
+        for (auto it = pendingNotes.begin(); it != pendingNotes.end();)
+        {
+            const auto& [channel, noteNumber, noteOffSample] = *it;
 
-        if (noteOffSample >= currentBlockStart && noteOffSample < currentBlockStart + numSamplesInBlock)
-        {
-            int sampleOffset = static_cast<int>(noteOffSample - currentBlockStart);
-            auto noteOff = juce::MidiMessage::noteOff(channel, noteNumber);
-            targetMidiBuffer.addEvent(noteOff, sampleOffset);
-            it = pendingNotes.erase(it);
-        }
-        else
-        {
-            ++it;
+            if (noteOffSample >= currentBlockStart && noteOffSample < currentBlockStart + numSamplesInBlock)
+            {
+                int sampleOffset = static_cast<int>(noteOffSample - currentBlockStart);
+                auto noteOff = juce::MidiMessage::noteOff(channel, noteNumber);
+                targetMidiBuffer.addEvent(noteOff, sampleOffset);
+                it = pendingNotes.erase(it);  // Safe erase during iteration
+            }
+            else
+            {
+                ++it;
+            }
         }
     }
 }
@@ -68,7 +77,13 @@ void AudioPluginAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 {
     this->sampleRate = sampleRate;
     midiBuffer.clear();
-    pendingNotes.clear();
+
+    // Lock when clearing the vector
+    {
+        juce::ScopedLock lock(pendingNotesLock);
+        pendingNotes.clear();
+    }
+
     blockStartSample = 0;
 
     // Initialize EVERYTHING to prevent garbage logic
@@ -77,9 +92,7 @@ void AudioPluginAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     probabilitiesArray.fill(0.0f);
     currentGrooveShifts.fill(0.0f);
 
-    pendingNotes.clear();
-
-//
+    //
 }
 
 void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -152,7 +165,12 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     // 3. Finalize MIDI
     midiMessages.addEvents(midiBuffer, 0, numSamples, 0);
     midiBuffer.clear();
-    processPendingNotes(midiMessages, blockStartSample, numSamples);
+
+    // Lock when calling processPendingNotes
+    {
+        juce::ScopedLock lock(pendingNotesLock);
+        processPendingNotes(midiMessages, blockStartSample, numSamples);
+    }
 }
 
 void AudioPluginAudioProcessor::generateNewRhythm()
@@ -795,7 +813,12 @@ void AudioPluginAudioProcessor::setCurrentProgram (int index) {}
 const juce::String AudioPluginAudioProcessor::getProgramName (int index) { return {}; }
 void AudioPluginAudioProcessor::changeProgramName (int index, const juce::String& newName) {}
 
-void AudioPluginAudioProcessor::releaseResources() { pendingNotes.clear(); }
+void AudioPluginAudioProcessor::releaseResources()
+{
+    // Lock when clearing in destructor/release
+    juce::ScopedLock lock(pendingNotesLock);
+    pendingNotes.clear();
+}
 
 bool AudioPluginAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
