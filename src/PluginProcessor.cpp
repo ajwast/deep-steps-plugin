@@ -24,6 +24,18 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     {
         pitchParameters[i] = apvts.getRawParameterValue("pitch" + juce::String(i));
     }
+    for (int i = 0; i < 4; ++i)
+    {
+        latentParameters[i] = apvts.getRawParameterValue("latent" + juce::String(i));
+    }
+
+    // Initialize atomics
+    for (int i = 0; i < 16; ++i) {
+        probabilitiesArray[i].store(0.0f);
+        grooveMeans[i].store(0.0f);
+        grooveSigmas[i].store(0.0f);
+        currentGrooveShifts[i].store(0.0f);
+    }
 }
 AudioPluginAudioProcessor::~AudioPluginAudioProcessor() {
     stopThread(2000);
@@ -89,10 +101,10 @@ void AudioPluginAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     // Initialize EVERYTHING to prevent garbage logic
     rhythmArray.fill(0);
     pitchArray.fill(60);
-    probabilitiesArray.fill(0.0f);
-    currentGrooveShifts.fill(0.0f);
-
-    //
+    for (int i = 0; i < 16; ++i) {
+        probabilitiesArray[i].store(0.0f);
+        currentGrooveShifts[i].store(0.0f);
+    }
 }
 
 void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -126,8 +138,10 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     // 2. Iterate through the 16 steps
     for (int i = 0; i < 16; ++i)
     {
+        float prob = probabilitiesArray[i].load();
+
         // Only process if the note is likely to play
-        if (probabilitiesArray[i] > currentTolerance)
+        if (prob > currentTolerance)
         {
             // Determine which "iteration" of the 16-step loop we are currently in
             int64_t currentIteration = static_cast<int64_t>(std::floor((double)blockStartSample / samplesPerLoop));
@@ -143,7 +157,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
             for (int64_t iteration = currentIteration - 1; iteration <= currentIteration + 1; ++iteration)
             {
                 double stepNominalSample = (iteration * samplesPerLoop) + (i * samplesPer16th);
-                double nudge = currentGrooveShifts[i] * scale * halfWindow;
+                double nudge = currentGrooveShifts[i].load() * scale * halfWindow;
                 int64_t targetSample = static_cast<int64_t>(std::round(stepNominalSample + nudge));
 
                 // TRIGGER: Does this shifted note belong in THIS block?
@@ -153,7 +167,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
                     // Ensure offset is strictly within buffer range for safety
                     offset = juce::jlimit(0, numSamples - 1, offset);
 
-                    uint8_t velocity = static_cast<uint8_t>(juce::jlimit(0.0f, 1.0f, probabilitiesArray[i]) * 127.0f);
+                    uint8_t velocity = static_cast<uint8_t>(juce::jlimit(0.0f, 1.0f, prob) * 127.0f);
 
                     int currentPitch = static_cast<int>(pitchParameters[i]->load());
                     makeMIDINote(currentPitch, offset, velocity);
@@ -175,47 +189,61 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
 void AudioPluginAudioProcessor::generateNewRhythm()
 {
-    model.eval();
-    grooveModel.eval();
-
-    // 1. Generate Rhythm
+    // 1. Generate Latent Vector
     torch::Tensor latent;
 
     if (densityEstimated) {
         // Sample using the surveyed Mean and StdDev
-        // torch::randn gives us the "variation", which we scale by our surveyed stats
         latent = latentMeans + (torch::randn({1, 4}) * latentStdDevs);
-
-        // Safety: clamp to the tanh boundaries [-1, 1]
-        latent = torch::clamp(latent, -1.0, 1.0);
     } else {
         // Fallback if training hasn't happened yet
         latent = (torch::rand({1, 4}) * 2.0) - 1.0;
     }
 
-    auto output = model.decode(latent).view({16});
+    // 2. Update APVTS parameters - this will trigger UI and can be automated
+    auto latentData = latent.data_ptr<float>();
+    for (int i = 0; i < 4; ++i)
+    {
+        auto* param = dynamic_cast<juce::AudioParameterFloat*>(apvts.getParameter("latent" + juce::String(i)));
+        if (param)
+            param->setValueNotifyingHost(param->getNormalisableRange().convertTo0to1(latentData[i]));
+    }
 
-    // 2. Generate Groove (Sampling from the Gaussian)
+    // 3. Run inference
+    updateModelFromLatent();
+}
+
+void AudioPluginAudioProcessor::updateModelFromLatent()
+{
+    model.eval();
+    grooveModel.eval();
+
+    // 1. Get latent vector from APVTS
+    float latentVals[4];
+    for (int i = 0; i < 4; ++i)
+        latentVals[i] = latentParameters[i]->load();
+
+    torch::Tensor latent = torch::from_blob(latentVals, {1, 4}, torch::kFloat32).clone();
+
+    // 2. Decode Rhythm
+    auto output = model.decode(latent).view({16});
+    auto outputData = output.data_ptr<float>();
+
+    // 3. Decode Groove
     auto rhythmTensor = output.unsqueeze(0); // Shape [1, 16]
     auto [mu, sigma] = grooveModel.forward(rhythmTensor);
-
     auto muData = mu.data_ptr<float>();
     auto sigmaData = sigma.data_ptr<float>();
 
-    // 3. Update the internal arrays for the Editor and processBlock
-    auto outputData = output.data_ptr<float>();
-    // auto shiftData = sampledShifts.data_ptr<float>();
-
+    // 4. Update the internal arrays (atomics)
     for (int i = 0; i < 16; ++i) {
-        probabilitiesArray[i] = outputData[i];
+        probabilitiesArray[i].store(outputData[i]);
         rhythmArray[i] = (outputData[i] > 0.5) ? 1 : 0;
-        grooveMeans[i] = muData[i];
-        grooveSigmas[i] = sigmaData[i];
-
+        grooveMeans[i].store(muData[i]);
+        grooveSigmas[i].store(sigmaData[i]);
     }
 
     updateGrooveForNextBar();
-
 }
 
 void AudioPluginAudioProcessor::updateGrooveForNextBar()
@@ -227,10 +255,9 @@ void AudioPluginAudioProcessor::updateGrooveForNextBar()
     {
         // Simple Box-Muller or basic random approximation of the Gaussian
         float noise = (r.nextFloat() * 2.0f - 1.0f) + (r.nextFloat() * 2.0f - 1.0f);
-        float sampled = grooveMeans[i] + (noise * grooveSigmas[i] * humanize);
-        currentGrooveShifts[i] = juce::jlimit(-1.0f, 1.0f, sampled);
+        float sampled = grooveMeans[i].load() + (noise * grooveSigmas[i].load() * humanize);
+        currentGrooveShifts[i].store(juce::jlimit(-1.0f, 1.0f, sampled));
     }
-
 }
 
 void AudioPluginAudioProcessor::triggerBatchAnalysis(const juce::File& directory)
@@ -769,6 +796,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::ParameterID {"grooveAmount", 1}, // Use ParameterID object to set version hint
         "Groove Amount",
         0.0f, 1.0f, 0.5f));
+
+    // Latent space parameters (4D)
+    for (int i = 0; i < 4; ++i)
+    {
+        params.push_back(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID {"latent" + juce::String(i), 1},
+            "Latent " + juce::String(i),
+            -3.0f, 3.0f, 0.0f));
+    }
 
     // Pitch slider params
     for (int i = 0; i < 16; ++i)

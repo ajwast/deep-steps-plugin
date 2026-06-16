@@ -74,6 +74,7 @@ public:
     std::atomic<float>* toleranceParameter = nullptr;
     std::atomic<float>* grooveParameter = nullptr;
     std::array<std::atomic<float>*, 16> pitchParameters;
+    std::array<std::atomic<float>*, 4> latentParameters;
 
     
     // Training & Processing Functions
@@ -106,6 +107,7 @@ public:
     void loadDataset(const juce::File& inputFile);
     void generateNewRhythm();
     void updateGrooveForNextBar();
+    void updateModelFromLatent();
 
 private:
     // Audio and Timing member variables
@@ -123,7 +125,7 @@ private:
 
     // Sequencer arrays
     std::array<int, 16> rhythmArray, pitchArray;
-    std::array<float, 16> probabilitiesArray; // Stores raw model outputs
+    std::array<std::atomic<float>, 16> probabilitiesArray; // Stores raw model outputs
 
     // Parallel containers for rhythm (binary) and groove (offsets)
     std::vector<std::vector<float>> masterRhythmDataset;
@@ -141,9 +143,9 @@ private:
 
     GaussianGrooveModel grooveModel;
     std::unique_ptr<torch::optim::Adam> grooveOptimizer;
-    std::array<float, 16> grooveMeans;   // mu
-    std::array<float, 16> grooveSigmas;
-    std::array<float, 16> currentGrooveShifts;
+    std::array<std::atomic<float>, 16> grooveMeans;   // mu
+    std::array<std::atomic<float>, 16> grooveSigmas;
+    std::array<std::atomic<float>, 16> currentGrooveShifts;
 
     // Stores the "shape" of our learned latent space
     torch::Tensor latentMeans;
