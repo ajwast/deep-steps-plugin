@@ -53,5 +53,7 @@ private:
 
     float gaussian2D(float x, float y, float muX, float muY, float sigmaX, float sigmaY);
 
+    juce::Rectangle<int> getStepColumnBounds(int index);
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessorEditor)
 };

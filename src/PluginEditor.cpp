@@ -102,7 +102,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
     grooveLabel.attachToComponent(&grooveAmountSlider, true);
     
-    setSize (800, 600); // Increased height for pads
+    setSize (1000, 800); 
     startTimerHz(30);
 
     // Initial bake if data exists
@@ -112,6 +112,16 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
 {
     stopTimer();
+}
+
+juce::Rectangle<int> AudioPluginAudioProcessorEditor::getStepColumnBounds(int index)
+{
+    auto area = getLocalBounds().reduced(20);
+    area.removeFromTop(600); // Latent Pads + Performance Sliders
+    auto sequencerArea = area.removeFromTop(150);
+    
+    int columnWidth = sequencerArea.getWidth() / 16;
+    return sequencerArea.removeFromLeft(columnWidth * (index + 1)).removeFromRight(columnWidth);
 }
 
 //==============================================================================
