@@ -50,6 +50,12 @@ public:
 
         auto puckPos = valueToPoint(x, y);
         
+        // 3. Draw Crosshairs
+        g.setColour(juce::Colours::white.withAlpha(0.2f));
+        g.drawVerticalLine(puckPos.getX(), 0, (float)getHeight());
+        g.drawHorizontalLine(puckPos.getY(), 0, (float)getWidth());
+
+        // 4. Draw Puck
         g.setColour(juce::Colours::white);
         g.fillEllipse(puckPos.getX() - 5, puckPos.getY() - 5, 10, 10);
         g.drawEllipse(puckPos.getX() - 7, puckPos.getY() - 7, 14, 14, 1.0f);

@@ -209,10 +209,11 @@ void AudioPluginAudioProcessorEditor::resized()
         pitchSliders[i].setBounds(colBounds.reduced(2, 5));
     }
     
-    // 5. Footer (40px)
+    // 5. Bottom: Progress Bar
     auto footerArea = area.removeFromBottom(40);
-    trainingProgressBar.setBounds(footerArea.removeFromLeft(footerArea.getWidth() - 100).reduced(0, 10));
-}
+    trainingProgressBar.setBounds(footerArea.removeFromLeft(800).reduced(0, 10));
+    stepLabel.setBounds(footerArea.reduced(0, 10));
+    }
 
 void AudioPluginAudioProcessorEditor::bakeHeatmaps()
 {
