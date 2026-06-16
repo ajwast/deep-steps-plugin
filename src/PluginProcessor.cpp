@@ -276,6 +276,7 @@ void AudioPluginAudioProcessor::startTrainingSession(int epochs, double lr)
     if (!isThreadRunning()) {
         currentTask = ThreadTask::Training;
         backgroundProgress = 0.0f;
+        finishedTraining = false; // Reset flag
 
         // Check if we have data prepared from the batch processor
         if (trainingRhythmTensor.numel() > 0 && !isThreadRunning())

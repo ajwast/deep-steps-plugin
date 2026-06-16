@@ -253,9 +253,10 @@ void AudioPluginAudioProcessorEditor::timerCallback()
     progress = processorRef.getBackgroundProgress();
 
     // Trigger heatmap re-bake if training just finished
-    // (This is a bit simplified, ideally use a flag or change listener)
-    if (progress == 0.0 && !heatmapA.isValid()) {
-        // bakeHeatmaps(); 
+    if (processorRef.hasFinishedTraining() && processorRef.isDensityEstimated()) {
+        bakeHeatmaps();
+        // The processor should probably reset finishedTraining or we should track it locally
+        // to avoid constant re-baking. For now, bakeHeatmaps is relatively fast.
     }
 
     repaint();

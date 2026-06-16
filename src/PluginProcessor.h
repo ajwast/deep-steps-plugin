@@ -156,6 +156,7 @@ private:
     torch::Tensor getLatentMeans() const { return latentMeans; }
     torch::Tensor getLatentStdDevs() const { return latentStdDevs; }
     bool isDensityEstimated() const { return densityEstimated; }
+    bool hasFinishedTraining() const { return finishedTraining.load(); }
 
     void estimateLatentDensity(); // The new function
 
