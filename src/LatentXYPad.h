@@ -3,7 +3,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
-class LatentXYPad : public juce::Component
+class LatentXYPad : public juce::Component,
+                    public juce::AudioProcessorValueTreeState::Listener
 {
 public:
     LatentXYPad(juce::AudioProcessorValueTreeState& vts, 

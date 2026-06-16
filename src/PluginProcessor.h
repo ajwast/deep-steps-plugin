@@ -64,7 +64,13 @@ public:
     using PendingNote = std::tuple<int, int, int64_t>; // Channel, noteNumber, absoluteNoteOffSample
     std::vector<PendingNote> pendingNotes; // Stores pending Note Offs
     mutable juce::CriticalSection pendingNotesLock;  // Mutex to protect pendingNotes vector
-    const std::array<float, 16>& getProbabilities() const { return probabilitiesArray; }
+    const std::array<std::atomic<float>, 16>& getProbabilities() const { return probabilitiesArray; }
+
+    // Latent space stats for UI
+    torch::Tensor getLatentMeans() const { return latentMeans; }
+    torch::Tensor getLatentStdDevs() const { return latentStdDevs; }
+    bool isDensityEstimated() const { return densityEstimated; }
+    bool hasFinishedTraining() const { return finishedTraining.load(); }
 
     // Value Tree State & Parameters
 
@@ -151,12 +157,6 @@ private:
     torch::Tensor latentMeans;
     torch::Tensor latentStdDevs;
     bool densityEstimated = false;
-
-    // Latent space stats for UI
-    torch::Tensor getLatentMeans() const { return latentMeans; }
-    torch::Tensor getLatentStdDevs() const { return latentStdDevs; }
-    bool isDensityEstimated() const { return densityEstimated; }
-    bool hasFinishedTraining() const { return finishedTraining.load(); }
 
     void estimateLatentDensity(); // The new function
 

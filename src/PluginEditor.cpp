@@ -137,12 +137,13 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
             bool isCurrentStep = (static_cast<int>(currentStep) % 16 == i);
             
             // REAL-TIME VISUAL THRESHOLDING
-            bool isTriggerActive = (probs[i] > currentTol);
+            float prob = probs[i].load();
+            bool isTriggerActive = (prob > currentTol);
 
             if (isCurrentStep)
                 g.setColour(juce::Colours::red);
             else if (isTriggerActive)
-                g.setColour(juce::Colours::white.withAlpha(probs[i])); // Optional: Dimmer if lower prob
+                g.setColour(juce::Colours::white.withAlpha(prob)); // Optional: Dimmer if lower prob
             else
                 g.setColour(juce::Colours::darkgrey.darker());
 
@@ -219,11 +220,11 @@ void AudioPluginAudioProcessorEditor::bakeHeatmaps()
 
                 float density = gaussian2D(valX, valY, mu[dimX], mu[dimY], sigma[dimX], sigma[dimY]);
                 
-                uint8 r = (uint8)(juce::jlimit(0.0f, 1.0f, density) * 255);
-                uint8 b = (uint8)(juce::jlimit(0.0f, 1.0f, 1.0f - density) * 150 + 50);
-                uint8 g = (uint8)(density * 50);
+                juce::uint8 rVal = (juce::uint8)(juce::jlimit(0.0f, 1.0f, density) * 255);
+                juce::uint8 bVal = (juce::uint8)(juce::jlimit(0.0f, 1.0f, 1.0f - density) * 150 + 50);
+                juce::uint8 gVal = (juce::uint8)(density * 50);
                 
-                data.setPixelColour(x, y, juce::Colour(r, g, b));
+                data.setPixelColour(x, y, juce::Colour(rVal, gVal, bVal));
             }
         }
     };
