@@ -5,15 +5,68 @@
 AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p), trainingProgressBar(progress)
 {
+    // 1. Tools Menu
+    addAndMakeVisible(toolsMenu);
+    toolsMenu.addItem("Tools", 1);
+    toolsMenu.addSeparator();
+    toolsMenu.addItem("Batch Analyze", 2);
+    toolsMenu.addItem("Train Model", 3);
+    toolsMenu.addItem("Save Dataset", 4);
+    toolsMenu.addItem("Load Dataset", 5);
+    toolsMenu.setSelectedId(1);
+    
+    toolsMenu.onChange = [this] {
+        int id = toolsMenu.getSelectedId();
+        if (id == 2) { // Batch Analyze
+            batchChooser = std::make_unique<juce::FileChooser> (
+                "Select folder of loops...",
+                juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                "*.wav");
+            batchChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                [this] (const juce::FileChooser& fc) {
+                    auto result = fc.getResult();
+                    if (result.isDirectory()) processorRef.triggerBatchAnalysis(result);
+                });
+        }
+        else if (id == 3) { // Train
+            processorRef.startTrainingSession(100, 0.001);
+        }
+        else if (id == 4) { // Save
+            saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
+            saveChooser->launchAsync (juce::FileBrowserComponent::saveMode, [this] (const juce::FileChooser& fc) {
+                auto file = fc.getResult();
+                if (file != juce::File()) processorRef.saveDataset(file);
+            });
+        }
+        else if (id == 5) { // Load
+            loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
+            loadChooser->launchAsync(juce::FileBrowserComponent::openMode, [this] (const juce::FileChooser& fc) {
+                auto file = fc.getResult();
+                if (file.existsAsFile()) {
+                    processorRef.loadDataset(file);
+                    bakeHeatmaps(); // Re-bake when new data arrives
+                }
+            });
+        }
+        toolsMenu.setSelectedId(1, juce::dontSendNotification);
+    };
 
-    // Generate button
+    // 2. Latent Pads
+    padA = std::make_unique<LatentXYPad>(processorRef.apvts, "latent0", "latent1", [this]{
+        processorRef.updateModelFromLatent();
+    });
+    addAndMakeVisible(*padA);
+
+    padB = std::make_unique<LatentXYPad>(processorRef.apvts, "latent2", "latent3", [this]{
+        processorRef.updateModelFromLatent();
+    });
+    addAndMakeVisible(*padB);
+
+    // 3. Generate button
     addAndMakeVisible(generateButton);
     generateButton.onClick = [this] {
         processorRef.generateNewRhythm();
-        repaint(); // Force a redraw so we see the new pattern immediately
     };
-    
-
 
     // Pitch Sliders
     for (int i = 0; i < 16; ++i)
@@ -22,70 +75,19 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
         pitchSliders[i].setSliderStyle(juce::Slider::LinearVertical);
         pitchSliders[i].setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
 
-        // The attachment now handles the range, value, and syncing automatically
         pitchAttachments[i] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             processorRef.apvts, "pitch" + juce::String(i), pitchSliders[i]);
     }
 
-    // Batch button
-    addAndMakeVisible(batchButton);
-    batchButton.onClick = [this] {
-        batchChooser = std::make_unique<juce::FileChooser> (
-            "Select folder of loops...",
-            juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-            "*.wav");
-
-        batchChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-            [this] (const juce::FileChooser& fc)
-            {
-                auto result = fc.getResult();
-                if (result.isDirectory())
-                {
-                    // This call returns instantly, keeping the UI snappy
-                    processorRef.triggerBatchAnalysis(result);
-                }
-            });
-    };
-    // Save dataset button
-    addAndMakeVisible(saveDatasetButton);
-    saveDatasetButton.onClick = [this] {
-        saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
-        auto flags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles;
-
-        saveChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
-            auto file = fc.getResult();
-            if (file != juce::File()) processorRef.saveDataset(file);
-        });
-    };
-
-    // Load dataset button
-    addAndMakeVisible((loadDatasetButton));
-    loadDatasetButton.onClick = [this] {
-        loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
-        auto flags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
-
-        loadChooser->launchAsync(flags, [this] (const juce::FileChooser& fc) {
-            auto file = fc.getResult();
-            if (file.existsAsFile()) processorRef.loadDataset(file);
-        });
-    };
-
-
     // Progress Bar
     addAndMakeVisible(trainingProgressBar);
-
-    // Train button
-    addAndMakeVisible(trainButton);
-    trainButton.onClick = [this] {
-        processorRef.startTrainingSession(100, 0.001);
-    };
 
     // Tolerance slider
     addAndMakeVisible(toleranceSlider);
     toleranceSlider.setRange(0.0, 1.0, 0.01);
     toleranceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, "tolerance", toleranceSlider);
-    // Tolerance label
+    
     addAndMakeVisible(toleranceLabel);
     toleranceLabel.setText("Tolerance", juce::dontSendNotification);
     toleranceLabel.attachToComponent(&toleranceSlider, true);
@@ -95,13 +97,16 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     grooveAmountSlider.setRange(0.0, 1.0, 0.01);
     grooveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, "grooveAmount", grooveAmountSlider);
-    // Groove label
+
     addAndMakeVisible(grooveLabel);
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
     grooveLabel.attachToComponent(&grooveAmountSlider, true);
     
-    setSize (800, 500);
-    startTimerHz(30); // 30 FPS is usually plenty for a sequencer UI
+    setSize (800, 600); // Increased height for pads
+    startTimerHz(30);
+
+    // Initial bake if data exists
+    bakeHeatmaps();
 }
 
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
@@ -148,36 +153,93 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
 void AudioPluginAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds().reduced(20);
-    auto topArea = area.removeFromTop(150);
     
-    auto buttonWidth = 150;
-    auto buttonHeight = 30;
+    // 1. Top Bar: Tools Menu and Generate Button
+    auto topBar = area.removeFromTop(40);
+    toolsMenu.setBounds(topBar.removeFromLeft(150));
+    generateButton.setBounds(topBar.removeFromRight(150));
+    
+    // 2. Latent Pads Section
+    auto padArea = area.removeFromTop(250);
+    auto padWidth = padArea.getWidth() / 2 - 10;
+    padA->setBounds(padArea.removeFromLeft(padWidth));
+    padArea.removeFromLeft(20); // Gap
+    padB->setBounds(padArea.removeFromLeft(padWidth));
+    
+    // 3. Sliders (Tolerance, Groove)
+    area.removeFromTop(10); // Gap
+    auto sliderControlArea = area.removeFromTop(40);
+    toleranceSlider.setBounds(sliderControlArea.removeFromLeft(300).reduced(40, 0));
+    grooveAmountSlider.setBounds(sliderControlArea.removeFromRight(300).reduced(40, 0));
 
-    // 1. Arrange buttons in a column on the left
-    generateButton.setBounds(topArea.removeFromLeft(200).withHeight(buttonHeight).withY(20));
-    trainButton.setBounds(generateButton.getBounds().translated(0, 40));
-    saveDatasetButton.setBounds(trainButton.getBounds().translated(0, 40));
-    loadDatasetButton.setBounds(saveDatasetButton.getBounds().translated(0,40));
-
-    // Bottom button
-    batchButton.setBounds(area.removeFromBottom(40).withSize(150, 30));
-
-    trainingProgressBar.setBounds(area.removeFromBottom(25));
-
-    // 2. Control Sliders on the right side
-    // Position Tolerance Slider
-    toleranceSlider.setBounds(topArea.withSize(250, buttonHeight).withPosition(450, 20));
-
-    // Position Groove Slider (shifted 40 pixels down from the Tolerance slider)
-    grooveAmountSlider.setBounds(toleranceSlider.getBounds().translated(0, 40));
-
-    // 3. Pitch Sliders in the middle
-    auto sliderArea = area.removeFromTop(150);
-    auto stepWidth = sliderArea.getWidth() / 16;
+    // 4. Pitch Sliders
+    auto pitchArea = area.removeFromTop(100);
+    auto stepWidth = pitchArea.getWidth() / 16;
     for (int i = 0; i < 16; ++i)
     {
-        pitchSliders[i].setBounds(sliderArea.removeFromLeft(stepWidth).reduced(2, 0));
+        pitchSliders[i].setBounds(pitchArea.removeFromLeft(stepWidth).reduced(2, 0));
     }
+    
+    // 5. Bottom: Progress Bar
+    trainingProgressBar.setBounds(area.removeFromBottom(25));
+}
+
+void AudioPluginAudioProcessorEditor::bakeHeatmaps()
+{
+    const int padSize = 250;
+    heatmapA = juce::Image(juce::Image::RGB, padSize, padSize, true);
+    heatmapB = juce::Image(juce::Image::RGB, padSize, padSize, true);
+
+    float mu[4] = {0,0,0,0};
+    float sigma[4] = {1,1,1,1};
+
+    if (processorRef.isDensityEstimated())
+    {
+        auto means = processorRef.getLatentMeans();
+        auto stds = processorRef.getLatentStdDevs();
+        
+        if (means.numel() == 4 && stds.numel() == 4)
+        {
+            auto mPtr = means.data_ptr<float>();
+            auto sPtr = stds.data_ptr<float>();
+            for (int i = 0; i < 4; ++i) {
+                mu[i] = mPtr[i];
+                sigma[i] = sPtr[i];
+            }
+        }
+    }
+
+    auto renderHeatmap = [&](juce::Image& img, int dimX, int dimY) {
+        juce::Image::BitmapData data(img, juce::Image::BitmapData::writeOnly);
+        
+        for (int y = 0; y < padSize; ++y) {
+            for (int x = 0; x < padSize; ++x) {
+                float valX = juce::jmap((float)x, 0.0f, (float)padSize, -3.0f, 3.0f);
+                float valY = juce::jmap((float)y, 0.0f, (float)padSize, 3.0f, -3.0f); 
+
+                float density = gaussian2D(valX, valY, mu[dimX], mu[dimY], sigma[dimX], sigma[dimY]);
+                
+                uint8 r = (uint8)(juce::jlimit(0.0f, 1.0f, density) * 255);
+                uint8 b = (uint8)(juce::jlimit(0.0f, 1.0f, 1.0f - density) * 150 + 50);
+                uint8 g = (uint8)(density * 50);
+                
+                data.setPixelColour(x, y, juce::Colour(r, g, b));
+            }
+        }
+    };
+
+    renderHeatmap(heatmapA, 0, 1);
+    renderHeatmap(heatmapB, 2, 3);
+
+    if (padA) padA->setHeatmap(heatmapA);
+    if (padB) padB->setHeatmap(heatmapB);
+}
+
+float AudioPluginAudioProcessorEditor::gaussian2D(float x, float y, float muX, float muY, float sigmaX, float sigmaY)
+{
+    float dx = (x - muX) / sigmaX;
+    float dy = (y - muY) / sigmaY;
+    return std::exp(-0.5f * (dx * dx + dy * dy));
 }
 
 void AudioPluginAudioProcessorEditor::timerCallback()
@@ -190,6 +252,11 @@ void AudioPluginAudioProcessorEditor::timerCallback()
 
     progress = processorRef.getBackgroundProgress();
 
-    // TRIGGER THE UI REFRESH
+    // Trigger heatmap re-bake if training just finished
+    // (This is a bit simplified, ideally use a flag or change listener)
+    if (progress == 0.0 && !heatmapA.isValid()) {
+        // bakeHeatmaps(); 
+    }
+
     repaint();
 }

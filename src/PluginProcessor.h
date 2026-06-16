@@ -152,6 +152,11 @@ private:
     torch::Tensor latentStdDevs;
     bool densityEstimated = false;
 
+    // Latent space stats for UI
+    torch::Tensor getLatentMeans() const { return latentMeans; }
+    torch::Tensor getLatentStdDevs() const { return latentStdDevs; }
+    bool isDensityEstimated() const { return densityEstimated; }
+
     void estimateLatentDensity(); // The new function
 
     
