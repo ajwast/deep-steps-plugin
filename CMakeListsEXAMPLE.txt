@@ -1,26 +1,25 @@
 cmake_minimum_required(VERSION 3.22)
 
-# 0. System Configuration
-# This MUST be set before project() to ensure all targets use it
+# System Configuration
 if(APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "12.7" CACHE STRING "Minimum macOS version")
 endif()
 
-# 1. Project Setup
+# Project Setup
 project(DeepSteps VERSION 0.0.1)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 2. JUCE Setup 
-set(JUCE_DIR "/Users/alexwastnidge/JUCE")
+# JUCE Setup 
+set(JUCE_DIR "/Users/path/to/JUCE")
 add_subdirectory(${JUCE_DIR} "${CMAKE_BINARY_DIR}/JUCE")
 
-# 3. Create the Plugin Target
+# Create the Plugin Target
 juce_add_plugin(DeepSteps
     COMPANY_NAME "AW"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT TRUE       # CHANGED TO TRUE: Required for your sequencer to work!
+    NEEDS_MIDI_OUTPUT TRUE
     IS_MIDI_EFFECT FALSE
     COPY_PLUGIN_AFTER_BUILD TRUE
     PLUGIN_MANUFACTURER_CODE AWDS
@@ -28,42 +27,53 @@ juce_add_plugin(DeepSteps
     FORMATS AU VST3 Standalone
     PRODUCT_NAME "Deep Steps")
 
-# 4. Organise Files
+# Organise Files
 set(SourceFiles
-    src/PluginProcessor.cpp
-    src/PluginProcessor.h
-    src/PluginEditor.cpp
-    src/PluginEditor.h
-    src/Autoencoder.h
+        src/PluginProcessor.cpp
+        src/PluginProcessor.h
+        src/PluginEditor.cpp
+        src/PluginEditor.h
+        src/CustomLookAndFeel.cpp
+        src/CustomLookAndFeel.h
+        src/Autoencoder.h
         src/GrooveNN.h
-    src/RNN.h
+        src/RNN.h
 )
 
 source_group("Source" FILES ${SourceFiles})
 
-# 5. Add Sources to Target
+# Add Sources to Target
 target_sources(DeepSteps
     PRIVATE
         ${SourceFiles})
 
-# 6. LibTorch Setup
-set(CMAKE_PREFIX_PATH "../../../libtorch/libtorch")
+# LibTorch Setup
+set(CMAKE_PREFIX_PATH "path/to/libtorch")
 find_package(Torch REQUIRED)
 
-# 7. Compile Definitions
+# Compile Definitions
 target_compile_definitions(DeepSteps
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0)
 
-# 8. Linking
+# Add fonts as Binary data
+juce_add_binary_data(DeepStepsAssets
+        HEADER_NAME "BinaryData.h"
+        SOURCES
+        assets/fonts/LeagueSpartanRegular.ttf
+        assets/fonts/LeagueSpartanBold.ttf
+)
+
+# Linking
 target_link_libraries(DeepSteps
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_audio_formats
         ${TORCH_LIBRARIES}
+        DeepStepsAssets
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
