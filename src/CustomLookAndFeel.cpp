@@ -3,7 +3,7 @@
 
 CustomLookAndFeel::CustomLookAndFeel()
 {
-    // Retro-futurist theme styling colors:
+
     
     // Sliders
     setColour(juce::Slider::trackColourId, juce::Colour(0xff252936));
@@ -37,43 +37,47 @@ CustomLookAndFeel::~CustomLookAndFeel()
 {
 }
 
-juce::Typeface::Ptr CustomLookAndFeel::getTypefaceForFont(const juce::Font& f)
+void CustomLookAndFeel::loadTypefacesIfNeeded()
 {
-    // Try to load custom fonts from BinaryData
-    if (f.getTypefaceStyle().containsIgnoreCase("Bold") || f.isBold())
-    {
-        if (boldTypeface == nullptr)
-        {
-            // Only try to load if the binary data is not a small dummy placeholder
-            if (BinaryData::LeagueSpartanBold_ttfSize > 100)
-            {
-                boldTypeface = juce::Typeface::createSystemTypefaceFor(
-                    BinaryData::LeagueSpartanBold_ttf, 
-                    BinaryData::LeagueSpartanBold_ttfSize);
-            }
-        }
-        if (boldTypeface != nullptr)
-            return boldTypeface;
-    }
-    else
-    {
-        if (regularTypeface == nullptr)
-        {
-            // Only try to load if the binary data is not a small dummy placeholder
-            if (BinaryData::LeagueSpartanRegular_ttfSize > 100)
-            {
-                regularTypeface = juce::Typeface::createSystemTypefaceFor(
-                    BinaryData::LeagueSpartanRegular_ttf, 
-                    BinaryData::LeagueSpartanRegular_ttfSize);
-            }
-        }
-        if (regularTypeface != nullptr)
-            return regularTypeface;
+    if (boldTypeface == nullptr && BinaryData::LeagueSpartanBold_ttfSize > 100) {
+        boldTypeface = juce::Typeface::createSystemTypefaceFor(
+            BinaryData::LeagueSpartanBold_ttf, BinaryData::LeagueSpartanBold_ttfSize);
     }
 
-    // Fallback to default system font if resources aren't fully loaded
+    if (regularTypeface == nullptr && BinaryData::LeagueSpartanRegular_ttfSize > 100) {
+        regularTypeface = juce::Typeface::createSystemTypefaceFor(
+            BinaryData::LeagueSpartanRegular_ttf, BinaryData::LeagueSpartanRegular_ttfSize);
+    }
+}
+
+juce::Typeface::Ptr CustomLookAndFeel::getTypefaceForFont(const juce::Font& f)
+{
+    loadTypefacesIfNeeded();
+
+    if (f.isBold() && boldTypeface != nullptr)
+        return boldTypeface;
+
+    if (regularTypeface != nullptr)
+        return regularTypeface;
+
     return juce::LookAndFeel_V4::getTypefaceForFont(f);
 }
+
+juce::Font CustomLookAndFeel::getCustomFont(float size, bool isBold)
+{
+    loadTypefacesIfNeeded();
+
+    auto typeface = isBold ? boldTypeface : regularTypeface;
+
+    // Build the Font object explicitly from the memory typeface, NOT the string name
+    if (typeface != nullptr)
+        return juce::Font(typeface).withHeight(size);
+
+    // Fallback just in case
+    return juce::Font(size).withStyle(isBold ? juce::Font::bold : juce::Font::plain);
+}
+
+
 
 void CustomLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
                                          float sliderPos, float minSliderPos, float maxSliderPos,
@@ -310,3 +314,4 @@ void CustomLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& l
 {
     labelToPosition.setBounds(5, 1, box.getWidth() - 25, box.getHeight() - 2);
 }
+

@@ -18,7 +18,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // 0. Title Label
     addAndMakeVisible(titleLabel);
     titleLabel.setText("DEEP STEPS", juce::dontSendNotification);
-    titleLabel.setFont(juce::Font("League Spartan", 28.0f, juce::Font::bold));
+    titleLabel.setFont(customLookAndFeel.getCustomFont(28.0f, true));
     titleLabel.setJustificationType(juce::Justification::centred);
     titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xff00ffcc)); // retro neon cyan
 
@@ -33,40 +33,56 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     toolsMenu.setSelectedId(1);
     
     toolsMenu.onChange = [this] {
-        int id = toolsMenu.getSelectedId();
-        if (id == 2) { // Batch Analyze
-            batchChooser = std::make_unique<juce::FileChooser> (
-                "Select folder of loops...",
-                juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                "*.wav");
-            batchChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-                [this] (const juce::FileChooser& fc) {
-                    auto result = fc.getResult();
-                    if (result.isDirectory()) processorRef.triggerBatchAnalysis(result);
-                });
-        }
-        else if (id == 3) { // Train
-            processorRef.startTrainingSession(100, 0.001);
-        }
-        else if (id == 4) { // Save
-            saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
-            saveChooser->launchAsync (juce::FileBrowserComponent::saveMode, [this] (const juce::FileChooser& fc) {
-                auto file = fc.getResult();
-                if (file != juce::File()) processorRef.saveDataset(file);
+    int id = toolsMenu.getSelectedId();
+
+    if (id == 2) { // Batch Analyze
+        batchChooser = std::make_unique<juce::FileChooser> (
+            "Select folder of loops...",
+            juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+            ""); // <-- CHANGED from "*.wav" to "" to fix macOS folder selection
+
+        auto flags = juce::FileBrowserComponent::openMode |
+                     juce::FileBrowserComponent::canSelectDirectories;
+
+        batchChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+                auto result = fc.getResult();
+                if (result.isDirectory()) processorRef.triggerBatchAnalysis(result);
             });
-        }
-        else if (id == 5) { // Load
-            loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
-            loadChooser->launchAsync(juce::FileBrowserComponent::openMode, [this] (const juce::FileChooser& fc) {
-                auto file = fc.getResult();
-                if (file.existsAsFile()) {
-                    processorRef.loadDataset(file);
-                    bakeHeatmaps(); // Re-bake when new data arrives
-                }
-            });
-        }
-        toolsMenu.setSelectedId(1, juce::dontSendNotification);
-    };
+    }
+    else if (id == 3) { // Train
+        processorRef.startTrainingSession(100, 0.001);
+    }
+    else if (id == 4) { // Save Dataset
+        saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
+
+        // <-- ADDED canSelectFiles flag
+        auto flags = juce::FileBrowserComponent::saveMode |
+                     juce::FileBrowserComponent::canSelectFiles;
+
+        saveChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+            auto file = fc.getResult();
+            if (file != juce::File()) processorRef.saveDataset(file);
+        });
+    }
+    else if (id == 5) { // Load Dataset
+        loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
+
+        // <-- ADDED canSelectFiles flag
+        auto flags = juce::FileBrowserComponent::openMode |
+                     juce::FileBrowserComponent::canSelectFiles;
+
+        loadChooser->launchAsync(flags, [this] (const juce::FileChooser& fc) {
+            auto file = fc.getResult();
+            if (file.existsAsFile()) {
+                processorRef.loadDataset(file);
+                bakeHeatmaps(); // Re-bake when new data arrives
+            }
+        });
+    }
+
+    // Reset the menu text back to "Tools" so it acts like a dropdown button
+    toolsMenu.setSelectedId(1, juce::dontSendNotification);
+};
 
     // 2. Latent Pads with theme coloring
     padA = std::make_unique<LatentXYPad>(processorRef.apvts, "latent0", "latent1", [this]{
@@ -110,7 +126,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     addAndMakeVisible(toleranceLabel);
     toleranceLabel.setText("Tolerance", juce::dontSendNotification);
     toleranceLabel.setJustificationType(juce::Justification::centred);
-    toleranceLabel.setFont(juce::Font("League Spartan", 14.0f, juce::Font::plain));
+    toleranceLabel.setFont(customLookAndFeel.getCustomFont(14.0f, false));
 
     // Groove Amount rotary knob
     addAndMakeVisible(grooveAmountSlider);
@@ -123,9 +139,9 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     addAndMakeVisible(grooveLabel);
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
     grooveLabel.setJustificationType(juce::Justification::centred);
-    grooveLabel.setFont(juce::Font("League Spartan", 14.0f, juce::Font::plain));
+    grooveLabel.setFont(customLookAndFeel.getCustomFont(14.0f, false));
     
-    stepLabel.setFont(juce::Font("League Spartan", 14.0f, juce::Font::plain));
+    stepLabel.setFont(customLookAndFeel.getCustomFont(14.0f, false));
     
     setSize (1000, 800); 
     startTimerHz(30);
@@ -216,7 +232,7 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
         auto textBounds = colBounds.removeFromBottom(20);
         int noteNumber = static_cast<int>(pitchSliders[i].getValue());
         g.setColour(juce::Colour(0xffe2e8f0));
-        g.setFont(juce::Font("League Spartan", 11.0f, juce::Font::plain));
+        g.setFont(customLookAndFeel.getCustomFont(11.0f, false));
         g.drawFittedText(getMidiNoteName(noteNumber), textBounds, juce::Justification::centred, 1);
 
         // Highlight column under current playback step
