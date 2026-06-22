@@ -10,8 +10,9 @@ public:
     LatentXYPad(juce::AudioProcessorValueTreeState& vts, 
                 const juce::String& paramID_X, 
                 const juce::String& paramID_Y,
-                std::function<void()> onChange)
-        : apvts(vts), xID(paramID_X), yID(paramID_Y), onParameterChanged(onChange)
+                std::function<void()> onChange,
+                juce::Colour puckColor = juce::Colours::white)
+        : apvts(vts), xID(paramID_X), yID(paramID_Y), onParameterChanged(onChange), puckColour(puckColor)
     {
         xAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, xID, dummySliderX);
         yAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(apvts, yID, dummySliderY);
@@ -51,14 +52,14 @@ public:
         auto puckPos = valueToPoint(x, y);
         
         // 3. Draw Crosshairs
-        g.setColour(juce::Colours::white.withAlpha(0.2f));
+        g.setColour(puckColour.withAlpha(0.25f));
         g.drawVerticalLine(puckPos.getX(), 0, (float)getHeight());
         g.drawHorizontalLine(puckPos.getY(), 0, (float)getWidth());
 
         // 4. Draw Puck
-        g.setColour(juce::Colours::white);
+        g.setColour(puckColour);
         g.fillEllipse(puckPos.getX() - 5, puckPos.getY() - 5, 10, 10);
-        g.drawEllipse(puckPos.getX() - 7, puckPos.getY() - 7, 14, 14, 1.0f);
+        g.drawEllipse(puckPos.getX() - 8, puckPos.getY() - 8, 16, 16, 1.5f);
     }
 
     void mouseDown(const juce::MouseEvent& e) override
@@ -117,6 +118,7 @@ private:
     juce::AudioProcessorValueTreeState& apvts;
     juce::String xID, yID;
     std::function<void()> onParameterChanged;
+    juce::Colour puckColour;
 
     // Attachments need a slider to work with, even if we don't show it
     // Actually, for custom components, it's better to use ParameterAttachment or 

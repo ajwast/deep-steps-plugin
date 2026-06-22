@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "LatentXYPad.h"
+#include "CustomLookAndFeel.h"
 
 //==============================================================================
 class AudioPluginAudioProcessorEditor final : public juce::AudioProcessorEditor, 
@@ -21,6 +22,8 @@ private:
     // access the processor object that created it.
     AudioPluginAudioProcessor& processorRef;
 
+    CustomLookAndFeel customLookAndFeel;
+    juce::Label titleLabel;
     juce::Label stepLabel;
     double currentStep;
 

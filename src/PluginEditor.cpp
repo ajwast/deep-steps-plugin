@@ -1,10 +1,27 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+static juce::String getMidiNoteName (int noteNumber)
+{
+    static const char* noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    int octave = (noteNumber / 12) - 1; // standard MIDI mapping (60 is C4)
+    return juce::String (noteNames[noteNumber % 12]) + juce::String (octave);
+}
+
 //==============================================================================
 AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p), trainingProgressBar(progress)
 {
+    // Apply retro-futurist look and feel
+    setLookAndFeel(&customLookAndFeel);
+
+    // 0. Title Label
+    addAndMakeVisible(titleLabel);
+    titleLabel.setText("DEEP STEPS", juce::dontSendNotification);
+    titleLabel.setFont(juce::Font("League Spartan", 28.0f, juce::Font::bold));
+    titleLabel.setJustificationType(juce::Justification::centred);
+    titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xff00ffcc)); // retro neon cyan
+
     // 1. Tools Menu
     addAndMakeVisible(toolsMenu);
     toolsMenu.addItem("Tools", 1);
@@ -51,15 +68,15 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
         toolsMenu.setSelectedId(1, juce::dontSendNotification);
     };
 
-    // 2. Latent Pads
+    // 2. Latent Pads with theme coloring
     padA = std::make_unique<LatentXYPad>(processorRef.apvts, "latent0", "latent1", [this]{
         processorRef.updateModelFromLatent();
-    });
+    }, juce::Colour(0xff00ffcc)); // Retro neon cyan
     addAndMakeVisible(*padA);
 
     padB = std::make_unique<LatentXYPad>(processorRef.apvts, "latent2", "latent3", [this]{
         processorRef.updateModelFromLatent();
-    });
+    }, juce::Colour(0xffff007f)); // Retro neon magenta
     addAndMakeVisible(*padB);
 
     // 3. Generate button
@@ -68,7 +85,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
         processorRef.generateNewRhythm();
     };
 
-    // Pitch Sliders
+    // Pitch Sliders (Faders)
     for (int i = 0; i < 16; ++i)
     {
         addAndMakeVisible(pitchSliders[i]);
@@ -82,25 +99,33 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // Progress Bar
     addAndMakeVisible(trainingProgressBar);
 
-    // Tolerance slider
+    // Tolerance rotary knob
     addAndMakeVisible(toleranceSlider);
+    toleranceSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    toleranceSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     toleranceSlider.setRange(0.0, 1.0, 0.01);
     toleranceAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, "tolerance", toleranceSlider);
     
     addAndMakeVisible(toleranceLabel);
     toleranceLabel.setText("Tolerance", juce::dontSendNotification);
-    toleranceLabel.attachToComponent(&toleranceSlider, true);
+    toleranceLabel.setJustificationType(juce::Justification::centred);
+    toleranceLabel.setFont(juce::Font("League Spartan", 14.0f, juce::Font::plain));
 
-    // groove slider
+    // Groove Amount rotary knob
     addAndMakeVisible(grooveAmountSlider);
+    grooveAmountSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    grooveAmountSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     grooveAmountSlider.setRange(0.0, 1.0, 0.01);
     grooveAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, "grooveAmount", grooveAmountSlider);
 
     addAndMakeVisible(grooveLabel);
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
-    grooveLabel.attachToComponent(&grooveAmountSlider, true);
+    grooveLabel.setJustificationType(juce::Justification::centred);
+    grooveLabel.setFont(juce::Font("League Spartan", 14.0f, juce::Font::plain));
+    
+    stepLabel.setFont(juce::Font("League Spartan", 14.0f, juce::Font::plain));
     
     setSize (1000, 800); 
     startTimerHz(30);
@@ -111,14 +136,14 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
 
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
 {
+    setLookAndFeel(nullptr);
     stopTimer();
 }
 
 juce::Rectangle<int> AudioPluginAudioProcessorEditor::getStepColumnBounds(int index)
 {
-    auto area = getLocalBounds().reduced(20);
-    area.removeFromTop(600); // Latent Pads + Performance Sliders
-    auto sequencerArea = area.removeFromTop(150);
+    auto area = getLocalBounds().reduced(20, 0); // 960 width
+    auto sequencerArea = juce::Rectangle<int>(area.getX(), 530, area.getWidth(), 230);
     
     int columnWidth = sequencerArea.getWidth() / 16;
     return sequencerArea.removeFromLeft(columnWidth * (index + 1)).removeFromRight(columnWidth);
@@ -127,14 +152,24 @@ juce::Rectangle<int> AudioPluginAudioProcessorEditor::getStepColumnBounds(int in
 //==============================================================================
 void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    // 1. Background
-    g.fillAll (juce::Colour(0xff1a1a1a)); // Dark Slate
+    // 1. Background (Dark retro navy/slate)
+    g.fillAll (juce::Colour(0xff0d0e12));
     
-    // 2. Header Background
-    g.setColour(juce::Colours::black.withAlpha(0.2f));
-    g.fillRect(0, 0, getWidth(), 60);
+    // 2. Header Background (with bottom neon-cyan separator)
+    g.setColour(juce::Colour(0xff161822));
+    g.fillRect(0, 0, getWidth(), 80);
+    
+    g.setColour(juce::Colour(0xff00ffcc).withAlpha(0.35f));
+    g.drawHorizontalLine(79, 0.0f, (float)getWidth());
 
-    // 3. Sequencer Section
+    // 3. Sequencer Card/Section Panel
+    auto sequencerBounds = juce::Rectangle<int>(20, 530, getWidth() - 40, 230);
+    g.setColour(juce::Colour(0xff161822));
+    g.fillRoundedRectangle(sequencerBounds.toFloat(), 4.0f);
+    g.setColour(juce::Colour(0xff2a2d3d));
+    g.drawRoundedRectangle(sequencerBounds.toFloat(), 4.0f, 1.2f);
+
+    // 4. Sequencer Step Indicators
     const auto& probs = processorRef.getProbabilities();
     float currentTol = toleranceSlider.getValue();
     int activeStep = static_cast<int>(currentStep) % 16;
@@ -144,37 +179,50 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
         auto colBounds = getStepColumnBounds(i);
         
         // Draw column separator
-        g.setColour(juce::Colours::white.withAlpha(0.05f));
+        g.setColour(juce::Colours::white.withAlpha(0.04f));
         g.drawVerticalLine(colBounds.getX(), (float)colBounds.getY(), (float)colBounds.getBottom());
 
-        // Step Indicator (Light)
-        auto lightBounds = colBounds.removeFromTop(30).reduced(4, 4);
+        // Step Indicator (Square light)
+        auto lightBounds = colBounds.removeFromTop(30).reduced(5, 5);
         float prob = probs[i].load();
         bool isTriggerActive = (prob > currentTol);
+        auto cornerSize = 2.0f;
 
         if (i == activeStep)
         {
-            g.setColour(juce::Colours::red);
-            g.fillRect(lightBounds);
-            // Glow effect for active step
-            g.setColour(juce::Colours::red.withAlpha(0.3f));
-            g.drawRect(lightBounds.expanded(2), 2);
+            // Active step indicator: Glowing orange square
+            g.setColour(juce::Colour(0xffff9f0a));
+            g.fillRoundedRectangle(lightBounds.toFloat(), cornerSize);
+            
+            g.setColour(juce::Colour(0xffff9f0a).withAlpha(0.4f));
+            g.drawRoundedRectangle(lightBounds.toFloat().expanded(1.5f), cornerSize, 1.5f);
         }
         else if (isTriggerActive)
         {
-            g.setColour(juce::Colours::cyan.withAlpha(prob));
-            g.fillRect(lightBounds);
+            // Predicted trigger step: Cyan square scaled by probability
+            g.setColour(juce::Colour(0xff00ffcc).withAlpha(prob));
+            g.fillRoundedRectangle(lightBounds.toFloat(), cornerSize);
         }
         else
         {
-            g.setColour(juce::Colours::darkgrey.darker());
-            g.fillRect(lightBounds);
+            // Dark inactive step square
+            g.setColour(juce::Colour(0xff12131a));
+            g.fillRoundedRectangle(lightBounds.toFloat(), cornerSize);
+            g.setColour(juce::Colour(0xff2d3142));
+            g.drawRoundedRectangle(lightBounds.toFloat(), cornerSize, 1.0f);
         }
 
-        // Column highlight for playing step
+        // Draw note readout text at the bottom of the column strip
+        auto textBounds = colBounds.removeFromBottom(20);
+        int noteNumber = static_cast<int>(pitchSliders[i].getValue());
+        g.setColour(juce::Colour(0xffe2e8f0));
+        g.setFont(juce::Font("League Spartan", 11.0f, juce::Font::plain));
+        g.drawFittedText(getMidiNoteName(noteNumber), textBounds, juce::Justification::centred, 1);
+
+        // Highlight column under current playback step
         if (i == activeStep)
         {
-            g.setColour(juce::Colours::red.withAlpha(0.05f));
+            g.setColour(juce::Colour(0xffff9f0a).withAlpha(0.03f));
             g.fillRect(colBounds);
         }
     }
@@ -182,38 +230,53 @@ void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
 
 void AudioPluginAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced(20);
+    auto area = getLocalBounds();
     
-    // 1. Header (60px)
-    auto headerArea = area.removeFromTop(60);
-    toolsMenu.setBounds(headerArea.removeFromLeft(200).reduced(0, 15));
-    generateButton.setBounds(headerArea.removeFromRight(200).reduced(0, 15));
+    // 1. Header (80px)
+    auto headerArea = area.removeFromTop(80).reduced(20, 0);
+    titleLabel.setBounds(headerArea.getX(), headerArea.getY() + 10, headerArea.getWidth(), 30);
+    toolsMenu.setBounds(headerArea.getX(), headerArea.getY() + 45, 200, 30);
+    generateButton.setBounds(headerArea.getRight() - 200, headerArea.getY() + 45, 200, 30);
     
-    // 2. Latent Performance (440px)
-    auto padArea = area.removeFromTop(440);
-    int padSize = 440;
-    padA->setBounds(padArea.removeFromLeft(padSize).reduced(10));
-    padArea.removeFromLeft(area.getWidth() - (padSize * 2) - 40); // Dynamic center gap
-    padB->setBounds(padArea.removeFromLeft(padSize).reduced(10));
+    // 2. Latent Performance (360px)
+    auto padArea = area.removeFromTop(360).reduced(20, 0);
+    int padSize = 340;
+    padA->setBounds(padArea.removeFromLeft(padSize).reduced(0, 10));
+    padArea.removeFromLeft(padArea.getWidth() - padSize); // Skip center gap
+    padB->setBounds(padArea.removeFromLeft(padSize).reduced(0, 10));
     
-    // 3. Performance Sliders (80px)
-    auto sliderControlArea = area.removeFromTop(80);
-    toleranceSlider.setBounds(sliderControlArea.removeFromLeft(sliderControlArea.getWidth() / 2).reduced(100, 20));
-    grooveAmountSlider.setBounds(sliderControlArea.reduced(100, 20));
+    // 3. Performance Knobs (90px)
+    auto sliderControlArea = area.removeFromTop(90).reduced(20, 0);
+    int centerX = sliderControlArea.getCentreX();
+    int knobSize = 60;
+    int labelHeight = 20;
+    int centerGap = 160;
+    
+    int toleranceX = centerX - knobSize - centerGap / 2;
+    int toleranceY = sliderControlArea.getY();
+    toleranceLabel.setBounds(toleranceX - 25, toleranceY, knobSize + 50, labelHeight);
+    toleranceSlider.setBounds(toleranceX, toleranceY + labelHeight, knobSize, knobSize);
+    
+    int grooveX = centerX + centerGap / 2;
+    int grooveY = sliderControlArea.getY();
+    grooveLabel.setBounds(grooveX - 25, grooveY, knobSize + 50, labelHeight);
+    grooveAmountSlider.setBounds(grooveX, grooveY + labelHeight, knobSize, knobSize);
 
-    // 4. Sequencer Area (the 16 Step Channels)
+    // 4. Sequencer Area (230px)
+    auto sequencerArea = area.removeFromTop(230);
     for (int i = 0; i < 16; ++i)
     {
         auto colBounds = getStepColumnBounds(i);
         colBounds.removeFromTop(35); // Space for Step Light (drawn in paint)
+        colBounds.removeFromBottom(20); // Space for Note Readout (drawn in paint)
         pitchSliders[i].setBounds(colBounds.reduced(2, 5));
     }
     
-    // 5. Bottom: Progress Bar
-    auto footerArea = area.removeFromBottom(40);
+    // 5. Bottom: Progress Bar & Footer Info
+    auto footerArea = area.reduced(20, 0);
     trainingProgressBar.setBounds(footerArea.removeFromLeft(800).reduced(0, 10));
     stepLabel.setBounds(footerArea.reduced(0, 10));
-    }
+}
 
 void AudioPluginAudioProcessorEditor::bakeHeatmaps()
 {
