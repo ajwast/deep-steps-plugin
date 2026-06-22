@@ -12,7 +12,7 @@ static juce::String getMidiNoteName (int noteNumber)
 AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p), trainingProgressBar(progress)
 {
-    // Apply retro-futurist look and feel
+    // Apply look and feel
     setLookAndFeel(&customLookAndFeel);
 
     // 0. Title Label
@@ -169,7 +169,7 @@ juce::Rectangle<int> AudioPluginAudioProcessorEditor::getStepColumnBounds(int in
 void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
 {
     // 1. Background (Dark retro navy/slate)
-    g.fillAll (juce::Colour(0xff0d0e12));
+    g.fillAll (juce::Colour(0xff1e2230));
     
     // 2. Header Background (with bottom neon-cyan separator)
     g.setColour(juce::Colour(0xff161822));
