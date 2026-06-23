@@ -319,27 +319,30 @@ void AudioPluginAudioProcessorEditor::bakeHeatmaps()
         }
     }
 
-    auto renderHeatmap = [&](juce::Image& img, int dimX, int dimY) {
+    auto renderHeatmap = [&](juce::Image& img, int dimX, int dimY, juce::Colour hotColor) {
         juce::Image::BitmapData data(img, juce::Image::BitmapData::writeOnly);
-        
+
+        // Define the chassis background color (Cold)
+        juce::Colour coldColor = juce::Colour(0xff12131a);
+
         for (int y = 0; y < padSize; ++y) {
             for (int x = 0; x < padSize; ++x) {
                 float valX = juce::jmap((float)x, 0.0f, (float)padSize, -3.0f, 3.0f);
-                float valY = juce::jmap((float)y, 0.0f, (float)padSize, 3.0f, -3.0f); 
+                float valY = juce::jmap((float)y, 0.0f, (float)padSize, 3.0f, -3.0f);
 
                 float density = gaussian2D(valX, valY, mu[dimX], mu[dimY], sigma[dimX], sigma[dimY]);
-                
-                juce::uint8 rVal = (juce::uint8)(juce::jlimit(0.0f, 1.0f, density) * 255);
-                juce::uint8 bVal = (juce::uint8)(juce::jlimit(0.0f, 1.0f, 1.0f - density) * 150 + 50);
-                juce::uint8 gVal = (juce::uint8)(density * 50);
-                
-                data.setPixelColour(x, y, juce::Colour(rVal, gVal, bVal));
+                density = juce::jlimit(0.0f, 1.0f, density);
+
+                // Interpolate smoothly between chassis color and neon accent
+                juce::Colour pixelColor = coldColor.interpolatedWith(hotColor, density);
+                data.setPixelColour(x, y, pixelColor);
             }
         }
     };
 
-    renderHeatmap(heatmapA, 0, 1);
-    renderHeatmap(heatmapB, 2, 3);
+    // Now pass the specific neon colors for Pad A and Pad B when you call it
+    renderHeatmap(heatmapA, 0, 1, juce::Colour(0xff00ffcc)); // Neon Cyan
+    renderHeatmap(heatmapB, 2, 3, juce::Colour(0xffff007f)); // Neon Magenta
 
     if (padA) padA->setHeatmap(heatmapA);
     if (padB) padB->setHeatmap(heatmapB);

@@ -28,39 +28,105 @@ public:
         apvts.removeParameterListener(yID, this);
     }
 
+    // void paint(juce::Graphics& g) override
+    // {
+    //     // 1. Draw Background/Heatmap
+    //     if (heatmap.isValid())
+    //         g.drawImageWithin(heatmap, 0, 0, getWidth(), getHeight(), juce::RectanglePlacement::fillDestination);
+    //     else
+    //     {
+    //         g.setColour(juce::Colours::black.withAlpha(0.3f));
+    //         g.fillRoundedRectangle(getLocalBounds().toFloat(), 5.0f);
+    //     }
+    //
+    //     // 2. Draw Grid
+    //     g.setColour(juce::Colours::white.withAlpha(0.1f));
+    //     g.drawRect(getLocalBounds(), 1);
+    //     g.drawLine(getWidth() / 2.0f, 0, getWidth() / 2.0f, (float)getHeight());
+    //     g.drawLine(0, getHeight() / 2.0f, (float)getWidth(), getHeight() / 2.0f);
+    //
+    //     // 3. Draw Puck
+    //     auto x = apvts.getRawParameterValue(xID)->load();
+    //     auto y = apvts.getRawParameterValue(yID)->load();
+    //
+    //     auto puckPos = valueToPoint(x, y);
+    //
+    //     // 3. Draw Crosshairs
+    //     g.setColour(puckColour.withAlpha(0.25f));
+    //     g.drawVerticalLine(puckPos.getX(), 0, (float)getHeight());
+    //     g.drawHorizontalLine(puckPos.getY(), 0, (float)getWidth());
+    //
+    //     // 4. Draw Puck
+    //     g.setColour(puckColour);
+    //     g.fillEllipse(puckPos.getX() - 5, puckPos.getY() - 5, 10, 10);
+    //     g.drawEllipse(puckPos.getX() - 8, puckPos.getY() - 8, 16, 16, 1.5f);
+    // }
+
     void paint(juce::Graphics& g) override
-    {
+{
+    auto bounds = getLocalBounds().toFloat();
+    auto cornerSize = 3.0f; // Matches your ComboBox styling
+
         // 1. Draw Background/Heatmap
         if (heatmap.isValid())
+        {
+            juce::Graphics::ScopedSaveState state (g); // Save state before clipping
+
+            juce::Path clipPath;
+            clipPath.addRoundedRectangle(bounds, cornerSize);
+            g.reduceClipRegion(clipPath); // Apply rounded corners mask
+
             g.drawImageWithin(heatmap, 0, 0, getWidth(), getHeight(), juce::RectanglePlacement::fillDestination);
+            // The ScopedSaveState destructor will automatically remove the clip when it goes out of scope
+        }
         else
         {
-            g.setColour(juce::Colours::black.withAlpha(0.3f));
-            g.fillRoundedRectangle(getLocalBounds().toFloat(), 5.0f);
+            g.setColour(juce::Colour(0xff12131a));
+            g.fillRoundedRectangle(bounds, cornerSize);
         }
 
-        // 2. Draw Grid
-        g.setColour(juce::Colours::white.withAlpha(0.1f));
-        g.drawRect(getLocalBounds(), 1);
-        g.drawLine(getWidth() / 2.0f, 0, getWidth() / 2.0f, (float)getHeight());
-        g.drawLine(0, getHeight() / 2.0f, (float)getWidth(), getHeight() / 2.0f);
 
-        // 3. Draw Puck
-        auto x = apvts.getRawParameterValue(xID)->load();
-        auto y = apvts.getRawParameterValue(yID)->load();
+    // 2. Draw Vector Grid (Cyberpunk style)
+    g.setColour(juce::Colour(0xff2d3142).withAlpha(0.5f)); // Slate blue, semi-transparent
 
-        auto puckPos = valueToPoint(x, y);
-        
-        // 3. Draw Crosshairs
-        g.setColour(puckColour.withAlpha(0.25f));
-        g.drawVerticalLine(puckPos.getX(), 0, (float)getHeight());
-        g.drawHorizontalLine(puckPos.getY(), 0, (float)getWidth());
+    int numDivisions = 8;
+    float stepX = bounds.getWidth() / numDivisions;
+    float stepY = bounds.getHeight() / numDivisions;
 
-        // 4. Draw Puck
-        g.setColour(puckColour);
-        g.fillEllipse(puckPos.getX() - 5, puckPos.getY() - 5, 10, 10);
-        g.drawEllipse(puckPos.getX() - 8, puckPos.getY() - 8, 16, 16, 1.5f);
+    for (int i = 1; i < numDivisions; ++i)
+    {
+        // Draw vertical grid lines
+        g.drawVerticalLine(static_cast<int>(stepX * i), 0.0f, bounds.getHeight());
+        // Draw horizontal grid lines
+        g.drawHorizontalLine(static_cast<int>(stepY * i), 0.0f, bounds.getWidth());
     }
+
+    // Draw the main axis crosshairs slightly brighter
+    g.setColour(juce::Colour(0xff4a5568).withAlpha(0.6f));
+    g.drawVerticalLine(getWidth() / 2, 0.0f, bounds.getHeight());
+    g.drawHorizontalLine(getHeight() / 2, 0.0f, bounds.getWidth());
+
+    // 3. Draw The Outer Frame (Matches ComboBox)
+    g.setColour(juce::Colour(0xff4a5568)); // Outline Color
+    g.drawRoundedRectangle(bounds, cornerSize, 1.2f);
+
+    // 4. Draw Puck
+    auto x = apvts.getRawParameterValue(xID)->load();
+    auto y = apvts.getRawParameterValue(yID)->load();
+    auto puckPos = valueToPoint(x, y);
+
+    // Draw Targeting Crosshairs tracking the puck
+    g.setColour(puckColour.withAlpha(0.2f));
+    g.drawVerticalLine(static_cast<int>(puckPos.getX()), 0.0f, bounds.getHeight());
+    g.drawHorizontalLine(static_cast<int>(puckPos.getY()), 0.0f, bounds.getWidth());
+
+    // Draw HUD Puck (Reticle)
+    g.setColour(puckColour);
+    g.fillEllipse(puckPos.getX() - 3.0f, puckPos.getY() - 3.0f, 6.0f, 6.0f); // Inner glowing core
+
+    g.setColour(puckColour.withAlpha(0.7f));
+    g.drawEllipse(puckPos.getX() - 8.0f, puckPos.getY() - 8.0f, 16.0f, 16.0f, 1.5f); // Outer targeting ring
+}
 
     void mouseDown(const juce::MouseEvent& e) override
     {
