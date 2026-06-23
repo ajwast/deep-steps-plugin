@@ -1,6 +1,6 @@
 # Deep Steps DAW Plugin
 
-![DS_GUI.png](assets/images/DS_GUI.png)
+<img alt="DS_GUI.png" src="assets/images/DS_GUI.png" width="500"/>
 
 ## Introduction
 
