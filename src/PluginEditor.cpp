@@ -18,9 +18,8 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // 0. Title Label
     addAndMakeVisible(titleLabel);
     titleLabel.setText("DEEP STEPS", juce::dontSendNotification);
-    titleLabel.setFont(customLookAndFeel.getCustomFont(28.0f, true));
+    titleLabel.setFont(customLookAndFeel.getCustomFont(35.0f, true));
     titleLabel.setJustificationType(juce::Justification::centred);
-    titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xff00ffcc)); // retro neon cyan
 
     // 1. Tools Menu
     addAndMakeVisible(toolsMenu);
@@ -140,6 +139,19 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     grooveLabel.setText("Groove Amount", juce::dontSendNotification);
     grooveLabel.setJustificationType(juce::Justification::centred);
     grooveLabel.setFont(customLookAndFeel.getCustomFont(14.0f, false));
+
+    // Note Length knob
+    addAndMakeVisible(noteLengthSlider);
+    noteLengthSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    noteLengthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    noteLengthSlider.setRange(0.0, 1.0, 0.01);
+    noteLengthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processorRef.apvts, "noteLength", noteLengthSlider);
+
+    addAndMakeVisible(noteLengthLabel);
+    noteLengthLabel.setText("Note Length", juce::dontSendNotification);
+    noteLengthLabel.setJustificationType(juce::Justification::centred);
+    noteLengthLabel.setFont(customLookAndFeel.getCustomFont(14.0f, false));
     
     stepLabel.setFont(customLookAndFeel.getCustomFont(14.0f, false));
     
@@ -250,7 +262,7 @@ void AudioPluginAudioProcessorEditor::resized()
     
     // 1. Header (80px)
     auto headerArea = area.removeFromTop(80).reduced(20, 0);
-    titleLabel.setBounds(headerArea.getX(), headerArea.getY() + 10, headerArea.getWidth(), 30);
+    titleLabel.setBounds(headerArea.getX() + 10, headerArea.getY() + 20, headerArea.getWidth(), 50);
     toolsMenu.setBounds(headerArea.getX(), headerArea.getY() + 45, 200, 30);
     generateButton.setBounds(headerArea.getRight() - 200, headerArea.getY() + 45, 200, 30);
     
@@ -266,17 +278,22 @@ void AudioPluginAudioProcessorEditor::resized()
     int centerX = sliderControlArea.getCentreX();
     int knobSize = 60;
     int labelHeight = 20;
-    int centerGap = 160;
+    int centerGap = 200;
     
-    int toleranceX = centerX - knobSize - centerGap / 2;
+    int toleranceX = centerX - knobSize - centerGap / 3;
     int toleranceY = sliderControlArea.getY();
     toleranceLabel.setBounds(toleranceX - 25, toleranceY, knobSize + 50, labelHeight);
     toleranceSlider.setBounds(toleranceX, toleranceY + labelHeight, knobSize, knobSize);
     
-    int grooveX = centerX + centerGap / 2;
+    int grooveX = centerX - centerGap / 6;
     int grooveY = sliderControlArea.getY();
     grooveLabel.setBounds(grooveX - 25, grooveY, knobSize + 50, labelHeight);
     grooveAmountSlider.setBounds(grooveX, grooveY + labelHeight, knobSize, knobSize);
+
+    int lengthX = centerX + centerGap / 3;
+    int lengthY = sliderControlArea.getY();
+    noteLengthLabel.setBounds(lengthX - 25, lengthY, knobSize + 50, labelHeight);
+    noteLengthSlider.setBounds(lengthX, lengthY + labelHeight, knobSize, knobSize);
 
     // 4. Sequencer Area (230px)
     auto sequencerArea = area.removeFromTop(230);

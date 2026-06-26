@@ -20,6 +20,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     // Safely get the pointers now that apvts is constructed
     toleranceParameter = apvts.getRawParameterValue("tolerance");
     grooveParameter    = apvts.getRawParameterValue("grooveAmount");
+    noteLengthSeconds = apvts.getRawParameterValue("noteLength");
     for (int i = 0; i < 16; ++i)
     {
         pitchParameters[i] = apvts.getRawParameterValue("pitch" + juce::String(i));
@@ -50,8 +51,8 @@ void AudioPluginAudioProcessor::makeMIDINote(int noteNumber, int sampleOffset, j
     auto noteOn = juce::MidiMessage::noteOn(1, noteNumber, velocity);
     midiBuffer.addEvent(noteOn, sampleOffset);
 
-    // Calculate absolute Note Off sample position
-    int64_t noteOffSample = blockStartSample + sampleOffset + static_cast<int64_t>(sampleRate * noteLengthSeconds);
+    // Use ->load() to extract the float value from the atomic pointer
+    int64_t noteOffSample = blockStartSample + sampleOffset + static_cast<int64_t>(sampleRate * noteLengthSeconds->load());
 
     // Lock when modifying the vector
     {

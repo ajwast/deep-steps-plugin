@@ -7,8 +7,7 @@
 Deep Steps is a generative MIDI sequencer driven by user-trainable neural networks.
 This is a re-implementation using the JUCE C++ framework as a DAW plugin and Torch for neural networks and machine learning.
 
-The original Deep Steps project can be found [here](https://github.com/ajwast/DeepSteps). It was created by Alex Wastnidge as part of their Master's thesis for the Music, Communication and Technology programme at the University of Oslo. It's development was presented at the
-[*The International Conference on AI and Musical Creativity 2024*](https://aimc2024.pubpub.org/pub/odrhfynm/release/1)
+The original Deep Steps project can be found [here](https://github.com/ajwast/DeepSteps). It was created by Alex Wastnidge as part of their Master's thesis for the Music, Communication and Technology programme at the University of Oslo. It's development was presented at the [* International Conference on AI and Musical Creativity 2024*](https://aimc2024.pubpub.org/pub/odrhfynm/release/1)
 
 This plugin implementation is very much ***in development***. See the status of the project and the "To dos" below.
 
@@ -35,7 +34,12 @@ The DAW plugin (re)implementation makes several key improvements on the original
 - "Groove" is a continuous timing offset of a 16th note between its neighboring 32nd notes.
 - Groove offsets are re-generated every bar to mimic human playing.
 
+### User Training Data
+- Re-implemented onset detection from scratch with spectral flux and peak picking
+- 
+
 ## To Do
+- Release build of VST3
 - Add model weights as part of the Value Tree State (APVTS) for model recall.
 - Presets implementation: saving and recall of entire plugin state
 - Documentation (any)

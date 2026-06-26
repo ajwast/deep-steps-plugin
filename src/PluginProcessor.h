@@ -77,6 +77,7 @@ public:
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
+    std::atomic<float>* noteLengthSeconds = nullptr;
     std::atomic<float>* toleranceParameter = nullptr;
     std::atomic<float>* grooveParameter = nullptr;
     std::array<std::atomic<float>*, 16> pitchParameters;
@@ -124,7 +125,7 @@ private:
     // int intStep = 0;
     std::atomic<double> currentStep;
     // std::atomic<int> lastStep { -1 };
-    double noteLengthSeconds = 0.2;
+    // double noteLengthSeconds = 0.2;
     juce::MidiBuffer midiBuffer;
     int numSamples;
     std::atomic<int64_t> lastIteration { -1 };

@@ -47,9 +47,13 @@ private:
     juce::Slider grooveAmountSlider;
     juce::Label grooveLabel;
 
+    juce::Slider noteLengthSlider;
+    juce::Label noteLengthLabel;
+
     juce::ProgressBar trainingProgressBar;
     double progress;
 
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> noteLengthAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> toleranceAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> grooveAttachment;
     std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, 16> pitchAttachments;
