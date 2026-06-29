@@ -72,10 +72,19 @@ void AudioPluginAudioProcessor::processPendingNotes(juce::MidiBuffer& targetMidi
 
             if (noteOffSample >= currentBlockStart && noteOffSample < currentBlockStart + numSamplesInBlock)
             {
+                // Note-off falls within this block: emit at the correct sample offset
                 int sampleOffset = static_cast<int>(noteOffSample - currentBlockStart);
                 auto noteOff = juce::MidiMessage::noteOff(channel, noteNumber);
                 targetMidiBuffer.addEvent(noteOff, sampleOffset);
-                it = pendingNotes.erase(it);  // Safe erase during iteration
+                it = pendingNotes.erase(it);
+            }
+            else if (noteOffSample < currentBlockStart)
+            {
+                // Note-off is overdue (e.g. after a DAW scrub or skipped block):
+                // emit at the start of this block to prevent a stuck note.
+                auto noteOff = juce::MidiMessage::noteOff(channel, noteNumber);
+                targetMidiBuffer.addEvent(noteOff, 0);
+                it = pendingNotes.erase(it);
             }
             else
             {
@@ -136,7 +145,16 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     float currentTolerance = toleranceParameter->load();
     double halfWindow = samplesPer16th * 0.5;
 
-    // 2. Iterate through the 16 steps
+    // 2. Check once per block whether we've crossed into a new bar iteration,
+    //    and if so regenerate the groove shifts for all 16 steps.
+    int64_t currentIteration = static_cast<int64_t>(std::floor((double)blockStartSample / samplesPerLoop));
+    if (currentIteration != lastIteration.load())
+    {
+        updateGrooveForNextBar();
+        lastIteration.store(currentIteration);
+    }
+
+    // 3. Iterate through the 16 steps
     for (int i = 0; i < 16; ++i)
     {
         float prob = probabilitiesArray[i].load();
@@ -144,17 +162,8 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         // Only process if the note is likely to play
         if (prob > currentTolerance)
         {
-            // Determine which "iteration" of the 16-step loop we are currently in
-            int64_t currentIteration = static_cast<int64_t>(std::floor((double)blockStartSample / samplesPerLoop));
-
-            // Update groove if needed
-            if (currentIteration != lastIteration.load())
-            {
-                updateGrooveForNextBar();
-                lastIteration.store(currentIteration);
-            }
             // Check current iteration, and one ahead/behind to catch notes
-            // shifted across loop boundaries (e.g., negative shift from the start of the next bar)
+            // shifted across loop boundaries (e.g. a negative groove shift from the start of the next bar)
             for (int64_t iteration = currentIteration - 1; iteration <= currentIteration + 1; ++iteration)
             {
                 double stepNominalSample = (iteration * samplesPerLoop) + (i * samplesPer16th);
@@ -246,14 +255,20 @@ void AudioPluginAudioProcessor::updateModelFromLatent()
 
 void AudioPluginAudioProcessor::updateGrooveForNextBar()
 {
-    float humanize = toleranceParameter->load();
+    // Use grooveParameter (Groove Amount knob) to scale timing humanisation.
+    // toleranceParameter is already used as a note-probability threshold and
+    // must not double-duty as a groove scaler — doing so caused groove shifts
+    // to saturate at ±1 whenever the threshold was raised, dropping notes.
+    float humanize = grooveParameter->load();
     juce::Random& r = juce::Random::getSystemRandom();
 
     for (int i = 0; i < 16; ++i)
     {
-        // Simple Box-Muller or basic random approximation of the Gaussian
+        // Clamp sigma to [0, 1] before use so that large model outputs cannot
+        // push the shift outside the ±halfWindow region, causing missed triggers.
+        float sigma = juce::jlimit(0.0f, 1.0f, grooveSigmas[i].load());
         float noise = (r.nextFloat() * 2.0f - 1.0f) + (r.nextFloat() * 2.0f - 1.0f);
-        float sampled = grooveMeans[i].load() + (noise * grooveSigmas[i].load() * humanize);
+        float sampled = grooveMeans[i].load() + (noise * sigma * humanize);
         currentGrooveShifts[i].store(juce::jlimit(-1.0f, 1.0f, sampled));
     }
 }
