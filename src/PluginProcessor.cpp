@@ -107,6 +107,8 @@ void AudioPluginAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
     }
 
     blockStartSample = 0;
+    lastIteration.store(-1); // Reset iteration tracking for clean transport start
+    stepTriggeredInBar.fill(false); // Reset step trigger flags
 
     // Initialize EVERYTHING to prevent garbage logic
     rhythmArray.fill(0);
@@ -152,6 +154,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     {
         updateGrooveForNextBar();
         lastIteration.store(currentIteration);
+        stepTriggeredInBar.fill(false); // Reset step trigger flags for new bar
     }
 
     // 3. Iterate through the 16 steps
@@ -166,6 +169,11 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
             // shifted across loop boundaries (e.g. a negative groove shift from the start of the next bar)
             for (int64_t iteration = currentIteration - 1; iteration <= currentIteration + 1; ++iteration)
             {
+                // Skip if we've already triggered this step in the current bar
+                // (prevents duplicate triggers when groove shifts cause overlap)
+                if (stepTriggeredInBar[i])
+                    break;
+                
                 double stepNominalSample = (iteration * samplesPerLoop) + (i * samplesPer16th);
                 double nudge = currentGrooveShifts[i].load() * scale * halfWindow;
                 int64_t targetSample = static_cast<int64_t>(std::round(stepNominalSample + nudge));
@@ -181,6 +189,9 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
 
                     int currentPitch = static_cast<int>(pitchParameters[i]->load());
                     makeMIDINote(currentPitch, offset, velocity);
+                    
+                    // Mark this step as triggered in the current bar
+                    stepTriggeredInBar[i] = true;
                 }
             }
         }
@@ -890,3 +901,21 @@ juce::AudioProcessorEditor* AudioPluginAudioProcessor::createEditor() { return n
 
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
+
+
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
+
+
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
+
+
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
+
+
+
+

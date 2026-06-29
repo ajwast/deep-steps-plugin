@@ -129,6 +129,9 @@ private:
     juce::MidiBuffer midiBuffer;
     int numSamples;
     std::atomic<int64_t> lastIteration { -1 };
+    
+    // Track which steps have been triggered in the current bar to prevent duplicates
+    std::array<bool, 16> stepTriggeredInBar; // Track per-step triggers within a bar
 
     // Sequencer arrays
     std::array<int, 16> rhythmArray, pitchArray;
