@@ -30,16 +30,17 @@ The DAW plugin (re)implementation makes several key improvements on the original
 - Tahn function on the decoder output to cheaply clip range between -1 and 1.
 
 ### Groove Generation 
-- Micro-timings for groove is driven by a regression model which takes the current step generation as input.
+- Micro-timings for groove is driven by a Gaussian regression model which takes the current step generation as input.
 - "Groove" is a continuous timing offset of a 16th note between its neighboring 32nd notes.
-- Groove offsets are re-generated every bar to mimic human playing.
+- Groove offsets are re-sampled from Gaussian distribution every bar to mimic human playing.
 
 ### User Training Data
-- Re-implemented onset detection from scratch with spectral flux and peak picking
-- 
+- Re-implemented onset detection from scratch with spectral flux and peak picking.
+- Saving and loading of training data
 
 ## To Do
 - Release build of VST3
+- GUI controls over training hyperparameters: epoches, 
 - Add model weights as part of the Value Tree State (APVTS) for model recall.
 - Presets implementation: saving and recall of entire plugin state
 - Documentation (any)
