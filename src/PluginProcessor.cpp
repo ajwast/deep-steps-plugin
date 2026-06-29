@@ -17,7 +17,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
 {
     formatManager.registerBasicFormats();
 
-    // Safely get the pointers now that apvts is constructed
+    // Get the pointers now that apvts is constructed
     toleranceParameter = apvts.getRawParameterValue("tolerance");
     grooveParameter    = apvts.getRawParameterValue("grooveAmount");
     noteLengthSeconds = apvts.getRawParameterValue("noteLength");
@@ -51,7 +51,7 @@ void AudioPluginAudioProcessor::makeMIDINote(int noteNumber, int sampleOffset, j
     auto noteOn = juce::MidiMessage::noteOn(1, noteNumber, velocity);
     midiBuffer.addEvent(noteOn, sampleOffset);
 
-    // Use ->load() to extract the float value from the atomic pointer
+
     int64_t noteOffSample = blockStartSample + sampleOffset + static_cast<int64_t>(sampleRate * noteLengthSeconds->load());
 
     // Lock when modifying the vector
@@ -130,7 +130,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     auto optPos = playHead->getPosition();
     if (!optPos.hasValue()) return;
 
-    // 1. Get Timing Context
+    // Get Timing Context
     dawBpm = optPos->getBpm().orFallback(120.0);
     blockStartSample = optPos->getTimeInSamples().orFallback(0);
     int numSamples = buffer.getNumSamples();
@@ -147,7 +147,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     float currentTolerance = toleranceParameter->load();
     double halfWindow = samplesPer16th * 0.5;
 
-    // 2. Check once per block whether we've crossed into a new bar iteration,
+    // Check once per block whether we've crossed into a new bar iteration,
     //    and if so regenerate the groove shifts for all 16 steps.
     int64_t currentIteration = static_cast<int64_t>(std::floor((double)blockStartSample / samplesPerLoop));
     if (currentIteration != lastIteration.load())
@@ -157,7 +157,7 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         stepTriggeredInBar.fill(false); // Reset step trigger flags for new bar
     }
 
-    // 3. Iterate through the 16 steps
+    // Iterate through the 16 steps
     for (int i = 0; i < 16; ++i)
     {
         float prob = probabilitiesArray[i].load();
@@ -197,17 +197,17 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         }
     }
 
-    // 3. Finalize MIDI
+    // Finalize MIDI
     midiMessages.addEvents(midiBuffer, 0, numSamples, 0);
     midiBuffer.clear();
 
-    // processPendingNotes acquires pendingNotesLock internally; no outer lock needed here.
+
     processPendingNotes(midiMessages, blockStartSample, numSamples);
 }
 
 void AudioPluginAudioProcessor::generateNewRhythm()
 {
-    // 1. Generate Latent Vector
+    // Generate Latent Vector
     torch::Tensor latent;
 
     if (densityEstimated) {
@@ -218,7 +218,7 @@ void AudioPluginAudioProcessor::generateNewRhythm()
         latent = (torch::rand({1, 4}) * 2.0) - 1.0;
     }
 
-    // 2. Update APVTS parameters - this will trigger UI and can be automated
+    // Update APVTS parameters - this will trigger UI and can be automated
     auto latentData = latent.data_ptr<float>();
     for (int i = 0; i < 4; ++i)
     {
@@ -227,7 +227,7 @@ void AudioPluginAudioProcessor::generateNewRhythm()
             param->setValueNotifyingHost(param->getNormalisableRange().convertTo0to1(latentData[i]));
     }
 
-    // 3. Run inference
+    // Run inference
     updateModelFromLatent();
 }
 
@@ -236,24 +236,24 @@ void AudioPluginAudioProcessor::updateModelFromLatent()
     model.eval();
     grooveModel.eval();
 
-    // 1. Get latent vector from APVTS
+    // Get latent vector from APVTS
     float latentVals[4];
     for (int i = 0; i < 4; ++i)
         latentVals[i] = latentParameters[i]->load();
 
     torch::Tensor latent = torch::from_blob(latentVals, {1, 4}, torch::kFloat32).clone();
 
-    // 2. Decode Rhythm
+    // Decode Rhythm
     auto output = model.decode(latent).view({16});
     auto outputData = output.data_ptr<float>();
 
-    // 3. Decode Groove
+    // Decode Groove
     auto rhythmTensor = output.unsqueeze(0); // Shape [1, 16]
     auto [mu, sigma] = grooveModel.forward(rhythmTensor);
     auto muData = mu.data_ptr<float>();
     auto sigmaData = sigma.data_ptr<float>();
 
-    // 4. Update the internal arrays (atomics)
+    // Update the internal arrays (atomics)
     for (int i = 0; i < 16; ++i) {
         probabilitiesArray[i].store(outputData[i]);
         rhythmArray[i] = (outputData[i] > 0.5) ? 1 : 0;
@@ -266,10 +266,7 @@ void AudioPluginAudioProcessor::updateModelFromLatent()
 
 void AudioPluginAudioProcessor::updateGrooveForNextBar()
 {
-    // Use grooveParameter (Groove Amount knob) to scale timing humanisation.
-    // toleranceParameter is already used as a note-probability threshold and
-    // must not double-duty as a groove scaler — doing so caused groove shifts
-    // to saturate at ±1 whenever the threshold was raised, dropping notes.
+
     float humanize = grooveParameter->load();
     juce::Random& r = juce::Random::getSystemRandom();
 
@@ -330,11 +327,11 @@ void AudioPluginAudioProcessor::estimateLatentDensity()
     torch::NoGradGuard no_grad;
     model.eval();
 
-    // 1. Pass the entire training set through the encoder
+    // Pass the entire training set through the encoder
     // Shape: [NumPatterns, 4]
     auto latents = model.encoder->forward(trainingRhythmTensor);
 
-    // 2. Calculate the Mean and StdDev for each of the 4 dimensions
+    // Calculate the Mean and StdDev for each of the 4 dimensions
     // dim(0) means we collapse the "Rows" (patterns) to get stats for each "Column" (dimension)
     latentMeans = torch::mean(latents, 0);
     latentStdDevs = torch::std(latents, 0);
@@ -388,10 +385,10 @@ void AudioPluginAudioProcessor::run()
 
                 backgroundProgress.store((double)epoch / (double)trainingEpochs);
 
-                // --- 1. Train Rhythm Autoencoder (with RAE Penalty) ---
+                //  Train Rhythm Autoencoder (with RAE Penalty) ---
                 rhythmOptimizer.zero_grad();
 
-                // We run encoder and decoder separately here so we can "see" the latent space
+                // Run encoder and decoder separately so we can "see" the latent space
                 auto latent = model.encoder->forward(trainingRhythmTensor);
                 auto rhythmPred = model.decoder->forward(latent);
 
@@ -407,7 +404,7 @@ void AudioPluginAudioProcessor::run()
                 totalRhythmLoss.backward();
                 rhythmOptimizer.step();
 
-                // --- 2. Train Gaussian Groove Model (Masked) ---
+                // Train Gaussian Groove Model (Masked) ---
                 grooveOptimizer.zero_grad();
                 auto [mu, sigma] = grooveModel.forward(trainingRhythmTensor);
                 auto grooveLoss = calculateGaussianLoss(mu, sigma, trainingGrooveTensor, trainingRhythmTensor);
@@ -415,7 +412,7 @@ void AudioPluginAudioProcessor::run()
                 grooveLoss.backward();
                 grooveOptimizer.step();
 
-                // 3. Log progress
+                // Log progress
                 if (epoch % 10 == 0 || epoch == trainingEpochs - 1)
                 {
                     std::cout << "Epoch: " << epoch
@@ -693,16 +690,12 @@ void AudioPluginAudioProcessor::segmentAudioFile()
         if (onsetSample >= windowStart && onsetSample < windowEnd)
         {
             steps[nearestIdx] = 1;
-//            stepsT[nearestIdx] = 1;
+
             const double offset = onsetSample - centerSample;
             shifts[nearestIdx] = juce::jlimit(
                 -1.0f, 1.0f,
                 (float) (offset / half32ndSamples)
             );
-//            shiftsT[nearestIdx] = juce::jlimit(
-//                -1.0f, 1.0f,
-//                (float) (offset / half32ndSamples)
-//            );
         }
     }
     
@@ -756,12 +749,12 @@ void AudioPluginAudioProcessor::prepareTrainingTensors()
     auto options = torch::TensorOptions().dtype(torch::kFloat32);
     int64_t numRows = (int64_t)masterRhythmDataset.size();
 
-    // 1. Flatten and create Rhythm Tensor
+    // Flatten and create Rhythm Tensor
     std::vector<float> flatRhythm;
     for (const auto& row : masterRhythmDataset) flatRhythm.insert(flatRhythm.end(), row.begin(), row.end());
     trainingRhythmTensor = torch::from_blob(flatRhythm.data(), {numRows, 16}, options).clone();
 
-    // 2. Flatten and create Groove Tensor
+    // Flatten and create Groove Tensor
     std::vector<float> flatGroove;
     for (const auto& row : masterGrooveDataset) flatGroove.insert(flatGroove.end(), row.begin(), row.end());
     trainingGrooveTensor = torch::from_blob(flatGroove.data(), {numRows, 16}, options).clone();
@@ -898,20 +891,6 @@ bool AudioPluginAudioProcessor::isBusesLayoutSupported (const BusesLayout& layou
 
 bool AudioPluginAudioProcessor::hasEditor() const { return true; }
 juce::AudioProcessorEditor* AudioPluginAudioProcessor::createEditor() { return new AudioPluginAudioProcessorEditor (*this); }
-
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
-
-
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
-
-
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
-
 
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new AudioPluginAudioProcessor(); }
