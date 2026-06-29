@@ -144,7 +144,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     addAndMakeVisible(noteLengthSlider);
     noteLengthSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     noteLengthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    noteLengthSlider.setRange(0.01, 2.0, 0.01); // seconds, matches APVTS parameter range
+    noteLengthSlider.setRange(0.001, 1.0, 0.01); // seconds, matches APVTS parameter range
     noteLengthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, "noteLength", noteLengthSlider);
 
