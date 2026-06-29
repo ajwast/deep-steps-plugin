@@ -181,11 +181,8 @@ void AudioPluginAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
     midiMessages.addEvents(midiBuffer, 0, numSamples, 0);
     midiBuffer.clear();
 
-    // Lock when calling processPendingNotes
-    {
-        juce::ScopedLock lock(pendingNotesLock);
-        processPendingNotes(midiMessages, blockStartSample, numSamples);
-    }
+    // processPendingNotes acquires pendingNotesLock internally; no outer lock needed here.
+    processPendingNotes(midiMessages, blockStartSample, numSamples);
 }
 
 void AudioPluginAudioProcessor::generateNewRhythm()
@@ -798,6 +795,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::c
         juce::ParameterID {"grooveAmount", 1}, // Use ParameterID object to set version hint
         "Groove Amount",
         0.0f, 1.0f, 0.5f));
+
+    // Note Length (in seconds)
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID {"noteLength", 1},
+        "Note Length",
+        juce::NormalisableRange<float>(0.01f, 2.0f, 0.01f),
+        0.1f));
 
     // Latent space parameters (4D)
     for (int i = 0; i < 4; ++i)

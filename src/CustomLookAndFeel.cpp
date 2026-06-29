@@ -48,6 +48,12 @@ void CustomLookAndFeel::loadTypefacesIfNeeded()
         regularTypeface = juce::Typeface::createSystemTypefaceFor(
             BinaryData::LeagueSpartanRegular_ttf, BinaryData::LeagueSpartanRegular_ttfSize);
     }
+
+    if (monoTypeface == nullptr && BinaryData::LeagueMonoBold_otfSize > 100) {
+        monoTypeface = juce::Typeface::createSystemTypefaceFor(
+            BinaryData::LeagueMonoBold_otf,
+            static_cast<size_t>(BinaryData::LeagueMonoBold_otfSize));
+    }
 }
 
 juce::Typeface::Ptr CustomLookAndFeel::getTypefaceForFont(const juce::Font& f)
@@ -75,6 +81,17 @@ juce::Font CustomLookAndFeel::getCustomFont(float size, bool isBold)
 
     // Fallback just in case
     return juce::Font(size).withStyle(isBold ? juce::Font::bold : juce::Font::plain);
+}
+
+juce::Font CustomLookAndFeel::getMonoFont(float size)
+{
+    loadTypefacesIfNeeded();
+
+    if (monoTypeface != nullptr)
+        return juce::Font(monoTypeface).withHeight(size);
+
+    // Fallback to bold system font
+    return juce::Font(size).withStyle(juce::Font::bold);
 }
 
 

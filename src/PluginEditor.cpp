@@ -18,7 +18,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     // 0. Title Label
     addAndMakeVisible(titleLabel);
     titleLabel.setText("DEEP STEPS", juce::dontSendNotification);
-    titleLabel.setFont(customLookAndFeel.getCustomFont(35.0f, true));
+    titleLabel.setFont(customLookAndFeel.getMonoFont(35.0f));
     titleLabel.setJustificationType(juce::Justification::centred);
 
     // 1. Tools Menu
@@ -144,7 +144,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     addAndMakeVisible(noteLengthSlider);
     noteLengthSlider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     noteLengthSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    noteLengthSlider.setRange(0.0, 1.0, 0.01);
+    noteLengthSlider.setRange(0.01, 2.0, 0.01); // seconds, matches APVTS parameter range
     noteLengthAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processorRef.apvts, "noteLength", noteLengthSlider);
 

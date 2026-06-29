@@ -11,6 +11,7 @@ public:
     // Font override
     juce::Typeface::Ptr getTypefaceForFont(const juce::Font& f) override;
     juce::Font getCustomFont(float size, bool isBold = false);
+    juce::Font getMonoFont(float size);
 
     // Linear Slider (Fader) drawing override
     void drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height,
@@ -46,6 +47,7 @@ public:
 private:
     juce::Typeface::Ptr regularTypeface = nullptr;
     juce::Typeface::Ptr boldTypeface = nullptr;
+    juce::Typeface::Ptr monoTypeface = nullptr;
     void loadTypefacesIfNeeded();
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CustomLookAndFeel)
 };
