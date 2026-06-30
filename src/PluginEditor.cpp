@@ -26,62 +26,58 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     toolsMenu.addItem("Tools", 1);
     toolsMenu.addSeparator();
     toolsMenu.addItem("Batch Analyze", 2);
-    toolsMenu.addItem("Train Model", 3);
     toolsMenu.addItem("Save Dataset", 4);
     toolsMenu.addItem("Load Dataset", 5);
     toolsMenu.setSelectedId(1);
     
     toolsMenu.onChange = [this] {
-    int id = toolsMenu.getSelectedId();
+        int id = toolsMenu.getSelectedId();
 
-    if (id == 2) { // Batch Analyze
-        batchChooser = std::make_unique<juce::FileChooser> (
-            "Select folder of loops...",
-            juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-            ""); // <-- CHANGED from "*.wav" to "" to fix macOS folder selection
+        if (id == 2) { // Batch Analyze
+            batchChooser = std::make_unique<juce::FileChooser> (
+                "Select folder of loops...",
+                juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                ""); // <-- CHANGED from "*.wav" to "" to fix macOS folder selection
 
-        auto flags = juce::FileBrowserComponent::openMode |
-                     juce::FileBrowserComponent::canSelectDirectories;
+            auto flags = juce::FileBrowserComponent::openMode |
+                         juce::FileBrowserComponent::canSelectDirectories;
 
-        batchChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
-                auto result = fc.getResult();
-                if (result.isDirectory()) processorRef.triggerBatchAnalysis(result);
+            batchChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+                    auto result = fc.getResult();
+                    if (result.isDirectory()) processorRef.triggerBatchAnalysis(result);
+                });
+        }
+        else if (id == 4) { // Save Dataset
+            saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
+
+            // <-- ADDED canSelectFiles flag
+            auto flags = juce::FileBrowserComponent::saveMode |
+                         juce::FileBrowserComponent::canSelectFiles;
+
+            saveChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
+                auto file = fc.getResult();
+                if (file != juce::File()) processorRef.saveDataset(file);
             });
-    }
-    else if (id == 3) { // Train
-        processorRef.startTrainingSession(100, 0.001);
-    }
-    else if (id == 4) { // Save Dataset
-        saveChooser = std::make_unique<juce::FileChooser> ("Save Dataset...", juce::File(), "*.pt");
+        }
+        else if (id == 5) { // Load Dataset
+            loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
 
-        // <-- ADDED canSelectFiles flag
-        auto flags = juce::FileBrowserComponent::saveMode |
-                     juce::FileBrowserComponent::canSelectFiles;
+            // <-- ADDED canSelectFiles flag
+            auto flags = juce::FileBrowserComponent::openMode |
+                         juce::FileBrowserComponent::canSelectFiles;
 
-        saveChooser->launchAsync (flags, [this] (const juce::FileChooser& fc) {
-            auto file = fc.getResult();
-            if (file != juce::File()) processorRef.saveDataset(file);
-        });
-    }
-    else if (id == 5) { // Load Dataset
-        loadChooser = std::make_unique<juce::FileChooser> ("Load Dataset...", juce::File(), "*.pt");
+            loadChooser->launchAsync(flags, [this] (const juce::FileChooser& fc) {
+                auto file = fc.getResult();
+                if (file.existsAsFile()) {
+                    processorRef.loadDataset(file);
+                    bakeHeatmaps(); // Re-bake when new data arrives
+                }
+            });
+        }
 
-        // <-- ADDED canSelectFiles flag
-        auto flags = juce::FileBrowserComponent::openMode |
-                     juce::FileBrowserComponent::canSelectFiles;
-
-        loadChooser->launchAsync(flags, [this] (const juce::FileChooser& fc) {
-            auto file = fc.getResult();
-            if (file.existsAsFile()) {
-                processorRef.loadDataset(file);
-                bakeHeatmaps(); // Re-bake when new data arrives
-            }
-        });
-    }
-
-    // Reset the menu text back to "Tools" so it acts like a dropdown button
-    toolsMenu.setSelectedId(1, juce::dontSendNotification);
-};
+        // Reset the menu text back to "Tools" so it acts like a dropdown button
+        toolsMenu.setSelectedId(1, juce::dontSendNotification);
+    };
 
     // 2. Latent Pads with theme coloring
     padA = std::make_unique<LatentXYPad>(processorRef.apvts, "latent0", "latent1", [this]{
@@ -99,6 +95,30 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     generateButton.onClick = [this] {
         processorRef.generateNewRhythm();
     };
+
+    // 4. Train controls
+    addAndMakeVisible(trainButton);
+    trainButton.onClick = [this] {
+        int epochs = static_cast<int>(epochsSlider.getValue());
+        processorRef.startTrainingSession(epochs, 0.001);
+    };
+
+    addAndMakeVisible(epochsLabel);
+    epochsLabel.setText("Epochs:", juce::dontSendNotification);
+    epochsLabel.setFont(customLookAndFeel.getCustomFont(15.0f, false));
+    epochsLabel.setJustificationType(juce::Justification::centredLeft);
+
+    addAndMakeVisible(epochsSlider);
+    epochsSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    epochsSlider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 120, 35);
+    epochsSlider.setRange(1.0, 1000.0, 1.0);
+    epochsSlider.setValue(100.0, juce::dontSendNotification);
+    epochsSlider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colour(0xff4a5568));
+    epochsSlider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(0xff12131a));
+    epochsSlider.setColour(juce::Slider::textBoxTextColourId, juce::Colour(0xffe2e8f0));
+    epochsSlider.setColour(juce::Slider::trackColourId, juce::Colours::transparentBlack);
+    epochsSlider.setColour(juce::Slider::backgroundColourId, juce::Colours::transparentBlack);
+    epochsSlider.setColour(juce::Slider::thumbColourId, juce::Colours::transparentBlack);
 
     // Pitch Sliders (Faders)
     for (int i = 0; i < 16; ++i)
@@ -262,16 +282,40 @@ void AudioPluginAudioProcessorEditor::resized()
     
     // 1. Header (80px)
     auto headerArea = area.removeFromTop(80).reduced(20, 0);
-    titleLabel.setBounds(headerArea.getX() + 10, headerArea.getY() + 20, headerArea.getWidth(), 50);
-    toolsMenu.setBounds(headerArea.getX(), headerArea.getY() + 45, 200, 30);
-    generateButton.setBounds(headerArea.getRight() - 200, headerArea.getY() + 45, 200, 30);
+    titleLabel.setBounds(headerArea); // Centered header title
     
     // 2. Latent Performance (360px)
     auto padArea = area.removeFromTop(360).reduced(20, 0);
     int padSize = 340;
+    
     padA->setBounds(padArea.removeFromLeft(padSize).reduced(0, 10));
-    padArea.removeFromLeft(padArea.getWidth() - padSize); // Skip center gap
+    
+    // Center Column bounds (width = 280, height = 360)
+    auto centerArea = padArea.removeFromLeft(padArea.getWidth() - padSize).reduced(10, 20);
+    
     padB->setBounds(padArea.removeFromLeft(padSize).reduced(0, 10));
+    
+    // Symmetrical vertical placement for model controls
+    int elementWidth = 220;
+    int elementHeight = 35;
+    int gapHeight = 20;
+    
+    auto centerColumn = centerArea.withSizeKeepingCentre(elementWidth, 320);
+    centerColumn.removeFromTop(60); // Vertical offset to align nicely in center
+    
+    generateButton.setBounds(centerColumn.removeFromTop(elementHeight));
+    centerColumn.removeFromTop(gapHeight);
+    
+    trainButton.setBounds(centerColumn.removeFromTop(elementHeight));
+    centerColumn.removeFromTop(gapHeight);
+    
+    auto epochsRow = centerColumn.removeFromTop(elementHeight);
+    epochsLabel.setBounds(epochsRow.removeFromLeft(100));
+    epochsSlider.setBounds(epochsRow);
+    
+    centerColumn.removeFromTop(gapHeight);
+    
+    toolsMenu.setBounds(centerColumn.removeFromTop(elementHeight));
     
     // 3. Performance Knobs (90px)
     auto sliderControlArea = area.removeFromTop(90).reduced(20, 0);

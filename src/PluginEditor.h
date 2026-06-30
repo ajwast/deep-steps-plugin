@@ -33,6 +33,9 @@ private:
     juce::Image heatmapA, heatmapB;
 
     juce::TextButton generateButton { "Random Latent" };
+    juce::TextButton trainButton { "Train Model" };
+    juce::Slider epochsSlider;
+    juce::Label epochsLabel;
 
     // File choosers (keep these)
     std::unique_ptr<juce::FileChooser> saveChooser;
