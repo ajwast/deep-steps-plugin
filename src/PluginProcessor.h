@@ -7,9 +7,11 @@
 #include <regex>
 #include "Autoencoder.h"
 #include "GrooveNN.h"
+#include "AudioAnalyzer.h"
+#include "ModelTrainerThread.h"
 
 //==============================================================================
-class AudioPluginAudioProcessor : public juce::AudioProcessor, public juce::Thread
+class AudioPluginAudioProcessor : public juce::AudioProcessor
 {
 public:
     //==============================================================================
@@ -22,7 +24,7 @@ public:
         BatchAnalysis
     };
 
-    void run() override;
+    //void run() override;
     void triggerBatchAnalysis(const juce::File& directory);
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
@@ -60,20 +62,19 @@ public:
     std::atomic<double>& getCurrentStep() { return currentStep; }
     const std::array<int, 16>& getRhythmArray() const { return rhythmArray; }
     std::array<int, 16>& getPitchArray() { return pitchArray; }
-    double getBackgroundProgress() {return  backgroundProgress;}
+    double getBackgroundProgress();
     using PendingNote = std::tuple<int, int, int64_t>; // Channel, noteNumber, absoluteNoteOffSample
     std::vector<PendingNote> pendingNotes; // Stores pending Note Offs
     mutable juce::CriticalSection pendingNotesLock;  // Mutex to protect pendingNotes vector
     const std::array<std::atomic<float>, 16>& getProbabilities() const { return probabilitiesArray; }
 
     // Latent space stats for UI
-    torch::Tensor getLatentMeans() const { return latentMeans; }
-    torch::Tensor getLatentStdDevs() const { return latentStdDevs; }
-    bool isDensityEstimated() const { return densityEstimated; }
-    bool hasFinishedTraining() const { return finishedTraining.load(); }
+    torch::Tensor getLatentMeans() const;
+    torch::Tensor getLatentStdDevs() const;
+    bool isDensityEstimated() const;
+    bool hasFinishedTraining() const;
 
     // Value Tree State & Parameters
-
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
@@ -83,35 +84,12 @@ public:
     std::array<std::atomic<float>*, 16> pitchParameters;
     std::array<std::atomic<float>*, 4> latentParameters;
 
-    
-    // Training & Processing Functions
+    // Training & Processing Functions (delegated to trainer)
     void startTrainingSession(int epochs, double lr);
-    void processBatch(const juce::Array<juce::File>& files);
-    void processDirectory(const juce::File& dir);
-
-    std::atomic<ThreadTask> currentTask { ThreadTask::None };
-    juce::File directoryToProcess;
-
-    // Use an atomic float to report progress back to the UI
-    std::atomic<double> backgroundProgress { 0.0 };
-    
-    // --- Audio Analysis Functionality ---
-    void loadAudioFile (const juce::File& file);
-    void detectOnsets();
-    void findTempoFromAudio (const juce::File& file);
-    void segmentAudioFile();
-
-    // Accessors for UI or Training
-    int getDetectedBpm() const { return detectedBpm; }
-    const std::vector<std::vector<int>>& getDetectedPatterns() const { return trainingPatterns; }
-
-    // NN Functions & Variables
-    torch::Tensor trainingTensor;
-    int trainingEpochs = 200;
-    double trainingLR = 0.001;
-    void prepareTrainingTensors();
+    // void triggerBatchAnalysis(const juce::File& directory);
     void saveDataset(const juce::File& outputFile);
     void loadDataset(const juce::File& inputFile);
+    //
     void generateNewRhythm();
     void updateGrooveForNextBar();
     void updateModelFromLatent();
@@ -157,31 +135,13 @@ private:
     std::array<std::atomic<float>, 16> grooveSigmas;
     std::array<std::atomic<float>, 16> currentGrooveShifts;
 
-    // Stores the "shape" of our learned latent space
-    torch::Tensor latentMeans;
-    torch::Tensor latentStdDevs;
-    bool densityEstimated = false;
+    // Audio Analysis & background training thread
+    AudioAnalyzer analyzer;
+    ModelTrainerThread trainer;
 
-    void estimateLatentDensity(); // The new function
-
-    
     // MIDI Helper Methods
     void makeMIDINote(int noteNumber, int sampleOffset, juce::uint8 velocity);
     void processPendingNotes(juce::MidiBuffer& midiBuffer, int64_t blockStartSample, int numSamples);
-    
-    // Audio Analysis Members
-    juce::AudioFormatManager formatManager;
-    juce::AudioSampleBuffer loadedBuffer;
-    std::vector<double> onsets;
-    std::vector<int> steps;     // Flattened binary array
-    std::vector<float> shifts;
-    std::vector<std::vector<int>> trainingPatterns; // List of 16-step bars
-
-    int detectedBpm = 120;
-    int barLengthInSamples = 0;
-    int sixteenthNoteSamples = 0;
-    int numBars = 0;
-    int numSixteenths = 0;
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessor)

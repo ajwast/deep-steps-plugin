@@ -12,11 +12,10 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
-                       ), juce::Thread("TrainingThread"),
-       apvts(*this, nullptr, "Parameters", createParameterLayout())
+                       ),
+       apvts(*this, nullptr, "Parameters", createParameterLayout()),
+       trainer(analyzer, model, grooveModel)
 {
-    formatManager.registerBasicFormats();
-
     // Get the pointers now that apvts is constructed
     toleranceParameter = apvts.getRawParameterValue("tolerance");
     grooveParameter    = apvts.getRawParameterValue("grooveAmount");
@@ -24,22 +23,21 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     for (int i = 0; i < 16; ++i)
     {
         pitchParameters[i] = apvts.getRawParameterValue("pitch" + juce::String(i));
-    }
-    for (int i = 0; i < 4; ++i)
-    {
-        latentParameters[i] = apvts.getRawParameterValue("latent" + juce::String(i));
-    }
-
-    // Initialize atomics
-    for (int i = 0; i < 16; ++i) {
         probabilitiesArray[i].store(0.0f);
+        rhythmArray[i] = 0;
         grooveMeans[i].store(0.0f);
         grooveSigmas[i].store(0.0f);
         currentGrooveShifts[i].store(0.0f);
     }
+
+    for (int i = 0; i < 4; ++i)
+    {
+        latentParameters[i] = apvts.getRawParameterValue("latent" + juce::String(i));
+    }
 }
-AudioPluginAudioProcessor::~AudioPluginAudioProcessor() {
-    stopThread(2000);
+
+AudioPluginAudioProcessor::~AudioPluginAudioProcessor()
+{
 }
 
 //==============================================================================
@@ -210,9 +208,9 @@ void AudioPluginAudioProcessor::generateNewRhythm()
     // Generate Latent Vector
     torch::Tensor latent;
 
-    if (densityEstimated) {
+    if (isDensityEstimated()) {
         // Sample using the surveyed Mean and StdDev
-        latent = latentMeans + (torch::randn({1, 4}) * latentStdDevs);
+        latent = getLatentMeans() + (torch::randn({1, 4}) * getLatentStdDevs());
     } else {
         // Fallback if training hasn't happened yet
         latent = (torch::rand({1, 4}) * 2.0) - 1.0;
@@ -283,521 +281,49 @@ void AudioPluginAudioProcessor::updateGrooveForNextBar()
 
 void AudioPluginAudioProcessor::triggerBatchAnalysis(const juce::File& directory)
 {
-    if (!isThreadRunning())
-    {
-        directoryToProcess = directory;
-        currentTask = ThreadTask::BatchAnalysis;
-        backgroundProgress = 0.0f;
-        startThread();
-    }
+    trainer.triggerBatchAnalysis(directory);
 }
 
 void AudioPluginAudioProcessor::startTrainingSession(int epochs, double lr)
 {
-    if (!isThreadRunning()) {
-        currentTask = ThreadTask::Training;
-        backgroundProgress = 0.0f;
-        finishedTraining = false; // Reset flag
-
-        // Check if we have data prepared from the batch processor
-        if (trainingRhythmTensor.numel() > 0 && !isThreadRunning())
-        {
-            trainingEpochs = epochs;
-            trainingLR = lr;
-
-            juce::Logger::writeToLog("Starting training thread with " +
-                                    juce::String(trainingRhythmTensor.size(0)) + " patterns...");
-            startThread();
-        }
-        else if (isThreadRunning()) {
-            juce::Logger::writeToLog("Training is already in progress.");
-        }
-        else {
-            juce::Logger::writeToLog("Training failed to start: No data in trainingRhythmTensor.");
-        }
-
-    }
-
+    trainer.startTrainingSession(epochs, lr);
 }
 
-void AudioPluginAudioProcessor::estimateLatentDensity()
+double AudioPluginAudioProcessor::getBackgroundProgress()
 {
-    if (trainingRhythmTensor.numel() == 0) return;
-
-    torch::NoGradGuard no_grad;
-    model.eval();
-
-    // Pass the entire training set through the encoder
-    // Shape: [NumPatterns, 4]
-    auto latents = model.encoder->forward(trainingRhythmTensor);
-
-    // Calculate the Mean and StdDev for each of the 4 dimensions
-    // dim(0) means we collapse the "Rows" (patterns) to get stats for each "Column" (dimension)
-    latentMeans = torch::mean(latents, 0);
-    latentStdDevs = torch::std(latents, 0);
-
-    densityEstimated = true;
-
-    juce::Logger::writeToLog("Ex-Post Density Estimation Complete.");
-    // Log the first dimension's stats as a sanity check
-    std::cout << "Latent Dim 0 -> Mean: " << latentMeans[0].item<float>()
-              << " Std: " << latentStdDevs[0].item<float>() << std::endl;
+    return trainer.getProgress();
 }
 
-void AudioPluginAudioProcessor::run()
+torch::Tensor AudioPluginAudioProcessor::getLatentMeans() const
 {
-
-    while (!threadShouldExit())
-    {
-        if (currentTask == ThreadTask::BatchAnalysis)
-        {
-
-            processDirectory(directoryToProcess);
-
-            currentTask = ThreadTask::None;
-            backgroundProgress = 1.0; // Done
-            return; // Exit thread when done
-        }
-        else if (currentTask == ThreadTask::Training)
-        {
-            // Safety check
-            if (trainingRhythmTensor.numel() == 0 || trainingGrooveTensor.numel() == 0) {
-                std::cout << "[Error] run() called but tensors are empty!" << std::endl;
-                return;
-            }
-
-            std::cout << "--- Training Started (RAE Regularization Enabled) ---" << std::endl;
-
-            // Initialize optimizers
-            auto rhythmOptions = torch::optim::AdamOptions(trainingLR).weight_decay(1e-5);
-            torch::optim::Adam rhythmOptimizer(model.parameters(), rhythmOptions);
-            torch::optim::Adam grooveOptimizer(grooveModel.parameters(), torch::optim::AdamOptions(trainingLR));
-
-            model.train();
-            grooveModel.train();
-
-            // Hyperparameter for the Latent Penalty (RAE)
-            const float lambda = 0.01f;
-
-            for (int epoch = 0; epoch < trainingEpochs; ++epoch)
-            {
-                if (threadShouldExit()) return;
-
-                backgroundProgress.store((double)epoch / (double)trainingEpochs);
-
-                //  Train Rhythm Autoencoder (with RAE Penalty) ---
-                rhythmOptimizer.zero_grad();
-
-                // Run encoder and decoder separately so we can "see" the latent space
-                auto latent = model.encoder->forward(trainingRhythmTensor);
-                auto rhythmPred = model.decoder->forward(latent);
-
-                // Loss A: Reconstruction (Standard BCE)
-                auto reconLoss = torch::nn::functional::binary_cross_entropy(rhythmPred, trainingRhythmTensor);
-
-                // Loss B: Latent Penalty (L2 Regularization on the bottleneck)
-                auto latentPenalty = torch::mean(torch::pow(latent, 2));
-
-                // Total Loss
-                auto totalRhythmLoss = reconLoss + (lambda * latentPenalty);
-
-                totalRhythmLoss.backward();
-                rhythmOptimizer.step();
-
-                // Train Gaussian Groove Model (Masked) ---
-                grooveOptimizer.zero_grad();
-                auto [mu, sigma] = grooveModel.forward(trainingRhythmTensor);
-                auto grooveLoss = calculateGaussianLoss(mu, sigma, trainingGrooveTensor, trainingRhythmTensor);
-
-                grooveLoss.backward();
-                grooveOptimizer.step();
-
-                // Log progress
-                if (epoch % 10 == 0 || epoch == trainingEpochs - 1)
-                {
-                    std::cout << "Epoch: " << epoch
-                              << " | Recon: " << reconLoss.item<float>()
-                              << " | Latent Pen: " << latentPenalty.item<float>()
-                              << " | Groove Loss: " << grooveLoss.item<float>() << std::endl;
-                }
-            }
-
-            finishedTraining = true;
-            estimateLatentDensity();
-            std::cout << "--- Training Finished Successfully ---" << std::endl;
-            backgroundProgress.store(0.0);
-            currentTask = ThreadTask::None;
-            return;
-        }
-
-        // Avoid burning CPU if there's nothing to do
-        wait(100);
-    }
+    return trainer.getLatentMeans();
 }
 
-void AudioPluginAudioProcessor::processDirectory(const juce::File& dir)
+torch::Tensor AudioPluginAudioProcessor::getLatentStdDevs() const
 {
-    auto files = dir.findChildFiles(juce::File::findFiles, false, "*.wav");
-    int totalFiles = files.size();
-
-    for (int i = 0; i < totalFiles; ++i)
-    {
-        if (threadShouldExit()) return;
-
-        // Perform analysis
-        // We pass the file and collect results without touching member buffers yet
-        loadAudioFile(files[i]);
-
-        // Only process if loadAudioFile actually produced steps
-        if (steps.size() >= 16)
-        {
-            int totalBars = (int)steps.size() / 16;
-            for (int bar = 0; bar < totalBars; ++bar)
-            {
-                std::vector<float> rhythmBar;
-                std::vector<float> grooveBar;
-
-                for (int j = 0; j < 16; ++j) {
-                    int index = (bar * 16) + j;
-                    rhythmBar.push_back((float)steps[index]);
-                    grooveBar.push_back(shifts[index]);
-                }
-
-                masterRhythmDataset.push_back(rhythmBar);
-                masterGrooveDataset.push_back(grooveBar);
-            }
-        }
-
-        backgroundProgress.store((double)i / (double)totalFiles);
-    }
-
-    juce::Logger::writeToLog("Batch Complete. Bars processed: " + juce::String(masterRhythmDataset.size()));
-    // Convert to tensors only after ALL files are processed
-    prepareTrainingTensors();
+    return trainer.getLatentStdDevs();
 }
 
-void AudioPluginAudioProcessor::loadAudioFile (const juce::File& file)
+bool AudioPluginAudioProcessor::isDensityEstimated() const
 {
-    if (auto* reader = formatManager.createReaderFor(file))
-    {
-        sampleRate = reader->sampleRate;
-        loadedBuffer.setSize((int)reader->numChannels, (int)reader->lengthInSamples);
-        reader->read(&loadedBuffer, 0, (int)reader->lengthInSamples, 0, true, true);
-        delete reader;
-
-        detectOnsets(); // run offline analysis
-        findTempoFromAudio(file);
-        segmentAudioFile();
-
-
-    }
+    return trainer.isDensityEstimated();
 }
 
-void AudioPluginAudioProcessor::findTempoFromAudio (const juce::File& file)
+bool AudioPluginAudioProcessor::hasFinishedTraining() const
 {
-    detectedBpm = 0; // reset
-
-    const juce::String fileName = file.getFileNameWithoutExtension();
-    std::string nameStd = fileName.toStdString();
-
-    //Try "[number] bpm" with optional underscores
-    std::regex bpmRegex ("(\\d{2,3})[_\\s]*[Bb][Pp][Mm]");
-    std::smatch match;
-
-    if (std::regex_search(nameStd, match, bpmRegex))
-    {
-        int value = std::stoi(match[1].str());
-        if (value >= 80 && value <= 170)
-        {
-            detectedBpm = value;
-            return;
-        }
-    }
-
-    // Else: any number between 80–170
-    std::regex numRegex ("(?:^|[^\\d])([8-9][0-9]|1[0-6][0-9]|170)(?:$|[^\\d])");
-    auto begin = std::sregex_iterator(nameStd.begin(), nameStd.end(), numRegex);
-    auto end   = std::sregex_iterator();
-
-    for (auto it = begin; it != end; ++it)
-    {
-        int value = std::stoi((*it)[1].str());
-        if (value >= 80 && value <= 170)
-        {
-            detectedBpm = value;
-            return;
-        }
-    }
+    return trainer.hasFinishedTraining();
 }
 
-void AudioPluginAudioProcessor::detectOnsets()
-{
-    onsets.clear();
 
-    const int numSamples  = loadedBuffer.getNumSamples();
-    const int numChannels = loadedBuffer.getNumChannels();
-    if (numSamples == 0 || numChannels == 0 || sampleRate <= 0.0)
-        return;
-
-    // === Parameters ===
-    constexpr int fftOrder = 10;                 // 1024
-    constexpr int fftSize  = 1 << fftOrder;
-    constexpr int hopSize  = fftSize / 2;
-    constexpr float peakThreshold = 0.15f;
-    constexpr int minGapSamples = 2048 * 2;
-
-    juce::dsp::FFT fft (fftOrder);
-    juce::dsp::WindowingFunction<float> window (
-        fftSize, juce::dsp::WindowingFunction<float>::hann);
-
-    // === Zero-padding at start ===
-    const int padding = fftSize;
-    const int paddedNumSamples = numSamples + padding;
-
-    std::vector<float> monoBuffer (paddedNumSamples, 0.0f);
-
-    for (int i = 0; i < numSamples; ++i)
-    {
-        float sum = 0.0f;
-        for (int ch = 0; ch < numChannels; ++ch)
-            sum += loadedBuffer.getSample (ch, i);
-
-        monoBuffer[i + padding] = sum / (float) numChannels;
-    }
-
-    std::vector<float> prevMag (fftSize / 2, 0.0f);
-    std::vector<float> fluxValues;
-    std::vector<int>   frameToSample;
-
-    bool firstFrame = true;
-
-    // === Process frames ===
-    for (int start = 0; start + fftSize < paddedNumSamples; start += hopSize)
-    {
-        std::vector<float> fftData (2 * fftSize, 0.0f);
-
-        for (int i = 0; i < fftSize; ++i)
-            fftData[2 * i] = monoBuffer[start + i];
-
-        window.multiplyWithWindowingTable (fftData.data(), fftSize);
-        fft.performRealOnlyForwardTransform (fftData.data());
-
-        std::vector<float> mag (fftSize / 2, 0.0f);
-        for (int bin = 0; bin < fftSize / 2; ++bin)
-        {
-            float re = fftData[2 * bin];
-            float im = fftData[2 * bin + 1];
-            mag[bin] = std::sqrt (re * re + im * im);
-        }
-
-        // Prime prevMag with first frame
-        if (firstFrame)
-        {
-            prevMag = mag;
-            firstFrame = false;
-            continue;
-        }
-
-        float flux = 0.0f;
-        for (int bin = 0; bin < fftSize / 2; ++bin)
-        {
-            float diff = mag[bin] - prevMag[bin];
-            if (diff > 0.0f)
-                flux += diff;
-        }
-
-        fluxValues.push_back (flux);
-        frameToSample.push_back (start - padding);
-        prevMag = mag;
-    }
-
-    if (fluxValues.empty())
-        return;
-
-    // === Normalize flux ===
-    float maxFlux = *std::max_element (fluxValues.begin(), fluxValues.end());
-    if (maxFlux > 0.0f)
-        for (auto& f : fluxValues)
-            f /= maxFlux;
-
-    // === Peak picking (includes first frame) ===
-    int lastOnsetSample = -minGapSamples;
-
-    for (size_t i = 0; i < fluxValues.size(); ++i)
-    {
-        float prev = (i == 0) ? 0.0f : fluxValues[i - 1];
-        float next = (i == fluxValues.size() - 1) ? 0.0f : fluxValues[i + 1];
-
-        if (fluxValues[i] > peakThreshold &&
-            fluxValues[i] > prev &&
-            fluxValues[i] > next)
-        {
-            int sampleIndex = std::max (0, frameToSample[i]);
-
-            if (sampleIndex - lastOnsetSample >= minGapSamples)
-            {
-                double timeSec = (double) sampleIndex / sampleRate;
-                onsets.push_back (timeSec);
-                lastOnsetSample = sampleIndex;
-            }
-        }
-    }
-}
-
-void AudioPluginAudioProcessor::segmentAudioFile()
-{
-    const int numSamples = loadedBuffer.getNumSamples();
-    if (numSamples == 0 ||detectedBpm <= 0 || sampleRate <= 0.0)
-        return;
-
-    // === Grid sizes ===
-    const double quarterNoteSamples = (60.0 / detectedBpm) * sampleRate;
-    barLengthInSamples = (int) std::round(quarterNoteSamples * 4.0);
-    sixteenthNoteSamples = (int) std::round(quarterNoteSamples / 4.0);
-
-    numBars = (int) std::ceil((double)numSamples / barLengthInSamples);
-    numSixteenths = (int) std::ceil((double)numSamples / sixteenthNoteSamples);
-
-    steps.assign(numSixteenths, 0);
-    shifts.assign(numSixteenths, 0.0f);
-
-    if (onsets.empty())
-        return;
-
-    const double half32ndSamples = sixteenthNoteSamples * 0.5;
-
-    for (double onsetSec : onsets)
-    {
-        const double onsetSample = onsetSec * sampleRate;
-
-        // nearest 16th index
-        int nearestIdx = (int) std::lrint(onsetSample / sixteenthNoteSamples);
-
-        // clamp instead of reject
-        nearestIdx = juce::jlimit(0, numSixteenths - 1, nearestIdx);
-
-        // center of this 16th
-        const double centerSample = nearestIdx * sixteenthNoteSamples;
-
-        // snapping window
-        double windowStart = centerSample - half32ndSamples;
-        double windowEnd   = centerSample + half32ndSamples;
-
-        // clamp window to file bounds
-        windowStart = std::max(0.0, windowStart);
-        windowEnd   = std::min((double) numSamples, windowEnd);
-
-        if (onsetSample >= windowStart && onsetSample < windowEnd)
-        {
-            steps[nearestIdx] = 1;
-
-            const double offset = onsetSample - centerSample;
-            shifts[nearestIdx] = juce::jlimit(
-                -1.0f, 1.0f,
-                (float) (offset / half32ndSamples)
-            );
-        }
-    }
-    
-}
-
-void AudioPluginAudioProcessor::processBatch(const juce::Array<juce::File>& files)
-{
-    for (const auto& file : files)
-    {
-        if (threadShouldExit()) return;if (threadShouldExit()) return;
-
-        if (file.isDirectory()) {
-            juce::Array<juce::File> children;
-            file.findChildFiles(children, juce::File::findFiles, true, "*.wav;*.aif");
-            processBatch(children);
-        }
-        else {
-
-            loadAudioFile(file); // This calls segmentAudioFile() internally
-            
-            // Slice the full-file vectors (steps/shifts) into 16-step bars
-            int totalBars = (int)steps.size() / 16;
-
-            for (int bar = 0; bar < totalBars; ++bar)
-            {
-                std::vector<float> rhythmBar;
-                std::vector<float> grooveBar;
-
-                for (int i = 0; i < 16; ++i) {
-                    int index = (bar * 16) + i;
-                    rhythmBar.push_back((float)steps[index]);
-                    grooveBar.push_back(shifts[index]);
-                }
-
-                masterRhythmDataset.push_back(rhythmBar);
-                masterGrooveDataset.push_back(grooveBar);
-            }
-        }
-        // // Update progress for the UI
-        // backgroundProgress.store((float)i / (float)total);
-    }
-    
-    juce::Logger::writeToLog("Batch Complete. Bars processed: " + juce::String(masterRhythmDataset.size()));
-    prepareTrainingTensors();
-}
-
-void AudioPluginAudioProcessor::prepareTrainingTensors()
-{
-    if (masterRhythmDataset.empty()) return;
-
-    auto options = torch::TensorOptions().dtype(torch::kFloat32);
-    int64_t numRows = (int64_t)masterRhythmDataset.size();
-
-    // Flatten and create Rhythm Tensor
-    std::vector<float> flatRhythm;
-    for (const auto& row : masterRhythmDataset) flatRhythm.insert(flatRhythm.end(), row.begin(), row.end());
-    trainingRhythmTensor = torch::from_blob(flatRhythm.data(), {numRows, 16}, options).clone();
-
-    // Flatten and create Groove Tensor
-    std::vector<float> flatGroove;
-    for (const auto& row : masterGrooveDataset) flatGroove.insert(flatGroove.end(), row.begin(), row.end());
-    trainingGrooveTensor = torch::from_blob(flatGroove.data(), {numRows, 16}, options).clone();
-}
 
 void AudioPluginAudioProcessor::saveDataset(const juce::File& outputFile)
 {
-    if (trainingRhythmTensor.numel() == 0 || trainingGrooveTensor.numel() == 0)
-        return;
-
-    try {
-        // Create an OutputArchive
-        torch::serialize::OutputArchive archive;
-
-        // Write each tensor with a string key
-        archive.write("rhythm", trainingRhythmTensor);
-        archive.write("groove", trainingGrooveTensor);
-
-        // Save the archive to the file path
-        archive.save_to(outputFile.getFullPathName().toStdString());
-
-        juce::Logger::writeToLog("Dual-Model Dataset saved successfully: " + outputFile.getFileName());
-    }
-    catch (const std::exception& e) {
-        juce::Logger::writeToLog("Save Error: " + juce::String(e.what()));
-    }
+    trainer.saveDataset(outputFile);
 }
 
 void AudioPluginAudioProcessor::loadDataset(const juce::File& inputFile)
 {
-    try {
-        torch::serialize::InputArchive archive;
-        archive.load_from(inputFile.getFullPathName().toStdString());
-
-        // Read the tensors back using the same keys
-        archive.read("rhythm", trainingRhythmTensor);
-        archive.read("groove", trainingGrooveTensor);
-
-        juce::Logger::writeToLog("Dataset loaded successfully.");
-    }
-    catch (const std::exception& e) {
-        juce::Logger::writeToLog("Load Error: " + juce::String(e.what()));
-    }
+    trainer.loadDataset(inputFile);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout AudioPluginAudioProcessor::createParameterLayout()
