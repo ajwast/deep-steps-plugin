@@ -37,7 +37,7 @@ inline torch::Tensor calculateGaussianLoss(torch::Tensor mu, torch::Tensor sigma
                                            torch::Tensor targets, torch::Tensor mask)
 {
     // The Gaussian Log-Likelihood formula
-    // We add a tiny epsilon (1e-6) to sigma to prevent log(0)
+    // Adding a tiny epsilon (1e-6) to sigma to prevent log(0)
     auto variance = sigma.pow(2) + 1e-6;
     auto log_likelihood = -0.5 * torch::log(2 * M_PI * variance)
                           - 0.5 * (targets - mu).pow(2) / variance;
